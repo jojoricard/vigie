@@ -1,0 +1,71 @@
+{
+  "port": 5252,
+  "lang": "en",
+  "country": "FR",
+  "theme": { "color": "#51007a" },
+  "lhmUrl": "http://127.0.0.1:8085/data.json",
+  "lgstrayUrl": "http://127.0.0.1:12321",
+  "anthropicApiKey": "",
+  "goveeApiKey": "",
+  "cities": [
+    { "name": "Paris", "short": "Paris", "lat": 48.8566, "lon": 2.3522 },
+    { "name": "Lyon", "short": "Lyon", "lat": 45.7578, "lon": 4.832 },
+    { "name": "Grenoble", "short": "Grenoble", "lat": 45.1885, "lon": 5.7245 }
+  ],
+  "snowSpots": [
+    { "name": "L'Alpe d'Huez", "lat": 45.0922, "lon": 6.0697, "alt": 1860 },
+    { "name": "Les Deux Alpes", "lat": 45.0110, "lon": 6.1240, "alt": 1650 },
+    { "name": "Chamrousse", "lat": 45.1250, "lon": 5.8760, "alt": 1650 },
+    { "name": "Chamonix", "lat": 45.9237, "lon": 6.8694, "alt": 1035 }
+  ],
+  "alertAreas": ["Paris", "Rhône", "Isère"],
+  "schoolZone": "C",
+  "network": {
+    "host": "1.1.1.1",
+    "port": 443,
+    "timeout": 2000
+  },
+  "services": [
+    { "name": "Router", "url": "http://192.168.1.1" },
+    { "url": "https://example.com" }
+  ],
+  "daikin": [
+    { "name": "Living room", "ip": "192.168.1.xxx" }
+  ],
+  "tools": [
+    {
+      "name": "Dev",
+      "icon": "code",
+      "releases": ["nodejs/node", "microsoft/vscode"],
+      "links": [
+        { "label": "MDN", "url": "https://developer.mozilla.org/" },
+        { "label": "DevDocs", "url": "https://devdocs.io/" },
+        { "label": "regex101", "url": "https://regex101.com/" },
+        { "label": "Can I use", "url": "https://caniuse.com/" }
+      ]
+    },
+    {
+      "name": "Hardware",
+      "icon": "chip",
+      "releases": [
+        "LibreHardwareMonitor/LibreHardwareMonitor",
+        "andyvorld/LGSTrayBattery",
+        "microsoft/PowerToys"
+      ],
+      "links": [
+        { "label": "LibreHardwareMonitor", "url": "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases" },
+        { "label": "LGSTrayBattery", "url": "https://github.com/andyvorld/LGSTrayBattery/releases" },
+        { "label": "PowerToys", "url": "https://github.com/microsoft/PowerToys/releases" }
+      ]
+    }
+  ],
+  "electricity": {
+    "pricePerKwh": null,
+    "baseWatts": 0
+  },
+  "fuel": { "types": ["e10", "gazole"], "radiusKm": 5 },
+  "localVersions": {
+    "nodejs/node": "auto",
+    "LibreHardwareMonitor/LibreHardwareMonitor": "C:\\path\\to\\LibreHardwareMonitor.exe"
+  }
+}

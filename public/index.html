@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigie</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- One tab per domain. Overview is read at a glance, the others go deeper. -->
+  <nav class="tabnav" id="tabnav">
+    <span data-tab="overview" class="on" data-i18n="tab.overview"></span>
+    <span data-tab="weather" data-i18n="tab.weather"></span>
+    <span data-tab="machine" data-i18n="tab.machine"></span>
+    <span data-tab="tools" data-i18n="tab.tools"></span>
+    <span data-tab="house" data-i18n="tab.house"></span>
+  </nav>
+
+  <!-- Three groups, side by side in landscape. On a vertical screen they melt into one
+       column (see style.css). -->
+  <div class="tabPane" id="tabOverview">
+    <div class="col">
+      <!-- The lookout's view: time, then the sun's path over the day. No card. -->
+      <header class="hero">
+        <div class="heroTop">
+          <div>
+            <div class="clock" id="clock">--:--</div>
+            <div class="date" id="dateLine"></div>
+            <div class="nameDay" id="nameDayLine" hidden></div>
+            <div class="nameDay" id="holidayLine" hidden></div>
+          </div>
+          <div class="heroRight">
+            <div id="tempoBadge"></div>
+            <div id="alertsList"></div>
+            <!-- Breaks: titles only, as pills. The details live in the Machine tab. -->
+            <div id="changeBadges"></div>
+            <!-- Windows waiting for a reboot or updates, a service down. Details in Machine. -->
+            <div id="machineBadges"></div>
+            <p class="briefing prose" id="briefing" hidden></p>
+            <!-- Only while something plays, and a few minutes after a pause. -->
+            <div class="nowPlaying" id="nowPlaying" hidden></div>
+          </div>
+        </div>
+        <div class="horizon" id="horizon"></div>
+      </header>
+
+      <div class="grid2">
+        <section class="card"><h2 data-i18n="card.processes"></h2><table id="procTable"></table></section>
+        <section class="card">
+          <h2 data-i18n="card.storage"></h2><div id="diskList"></div>
+          <div id="ssdHealth" hidden></div>
+          <h2 class="sub" data-i18n="card.devices"></h2><div id="btList" class="err" data-i18n="searching"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="col">
+      <section class="card" id="wxCard">
+        <canvas id="wxAnim"></canvas>
+        <div class="wxHead">
+          <div class="wxNow">
+            <div class="wxIcon" id="wxIcon"></div>
+            <div class="wxTemp num" id="wxTemp">–°</div>
+            <div>
+              <div class="wxDesc" id="wxDesc" data-i18n="loading"></div>
+              <div class="wxSub" id="wxSub"></div>
+            </div>
+          </div>
+          <div class="seg" id="cityTabs"></div>
+        </div>
+        <div class="readouts" id="wxReadouts"></div>
+        <div class="rainLine" id="rainWrap" hidden><span id="rainLbl"></span><div id="rainBars"></div></div>
+        <div class="forecast" id="forecast"></div>
+      </section>
+
+      <section class="card" id="energyCard" hidden>
+        <h2 data-i18n="card.energy"></h2>
+        <div class="readouts" id="energyRow"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card"><h2 data-i18n="card.air"></h2><div class="readouts" id="aqiRow"></div><div id="pollenLine" hidden></div></section>
+
+      <section class="card" id="sysCard">
+        <div class="cardHead"><h2 data-i18n="card.system"></h2><div class="meta" id="uptimeVal"></div></div>
+        <div id="lhmStatus" hidden></div>
+        <div class="meters" id="meters"></div>
+        <div class="dl" id="sysList"></div>
+        <div class="histCtl">
+          <div class="histTabs" id="histMetric"><span data-m="temp" data-i18n="hist.temp"></span><span data-m="load" data-i18n="hist.load"></span><span data-m="network" data-i18n="hist.network"></span><span data-m="latency" data-i18n="hist.latency"></span><span data-m="fans" data-i18n="hist.fans"></span><span data-m="power" data-i18n="hist.power"></span></div>
+          <div class="histTabs" id="histRange"><span data-r="1h" data-i18n="range.1h"></span><span data-r="6h" data-i18n="range.6h"></span><span data-r="12h" data-i18n="range.12h"></span><span data-r="1d" data-i18n="range.1d"></span><span data-r="7d" data-i18n="range.7d"></span><span data-r="30d" data-i18n="range.30d"></span></div>
+        </div>
+        <canvas id="histCanvas"></canvas>
+        <div class="legend" id="histLegend"></div>
+      </section>
+    </div>
+
+  </div><!-- /tabOverview -->
+
+  <!-- ================= WEATHER ================= -->
+  <div class="tabPane" id="tabWeather" hidden>
+    <section class="card">
+      <div class="cardHead"><h2 data-i18n="card.cities"></h2><div class="meta" data-i18n="cities.meta"></div></div>
+      <div class="triRow" id="mtCities"></div>
+    </section>
+
+    <section class="card" id="mtAlertCard" hidden>
+      <h2 data-i18n="card.warnings"></h2>
+      <div id="mtAlerts"></div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h2 data-i18n="card.radar"></h2><div class="meta" id="radarMeta"></div></div>
+      <div id="radarMap"></div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h2 data-i18n="card.airPollen"></h2><div class="meta" id="mtAirMeta"></div></div>
+      <div id="mtAir"></div>
+      <div id="mtPollens"></div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h2 data-i18n="card.next48"></h2><div class="meta" id="mtHourMeta"></div></div>
+      <div id="mtHours"></div>
+    </section>
+
+    <section class="card" id="pressureCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.pressure"></h2><div class="meta" id="pressureMeta"></div></div>
+      <div class="pressure" id="pressureBody"></div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h2 data-i18n="card.week"></h2><div class="meta" id="mtWeekMeta"></div></div>
+      <table id="mtWeek"></table>
+    </section>
+
+    <section class="card" id="snowCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.snow"></h2><div class="meta" id="snowMeta"></div></div>
+      <div id="snowTop"></div>
+      <div id="snowList"></div>
+    </section>
+  </div>
+
+  <!-- ================= MACHINE ================= -->
+  <div class="tabPane" id="tabMachine" hidden>
+    <section class="card" id="machCard" hidden><h2 data-i18n="card.machine"></h2><div id="machBody"></div><div class="winStatus" id="winStatus" hidden></div></section>
+    <section class="card" id="changeCard" hidden>
+      <h2 data-i18n="card.changes"></h2>
+      <div id="changeBody"></div>
+    </section>
+    <section class="card" id="crashCard" hidden><h2 data-i18n="card.incidents"></h2><div id="crashBody"></div></section>
+    <section class="card" id="netCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.network"></h2><div class="meta" id="netMeta"></div></div>
+      <div class="readouts" id="netRow"></div>
+    </section>
+    <section class="card" id="servicesCard" hidden>
+      <h2 data-i18n="card.services"></h2>
+      <div id="servicesList"></div>
+    </section>
+    <section class="card" id="yearCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.year"></h2><div class="meta" id="yearMeta"></div></div>
+      <div id="yearBody"></div>
+    </section>
+  </div>
+
+  <!-- ================= TOOLS ================= -->
+  <div class="tabPane" id="tabTools" hidden>
+    <div id="toolsList" class="err" data-i18n="loading"></div>
+  </div>
+
+  <!-- ================= HOUSE ================= -->
+  <div class="tabPane" id="tabHouse" hidden>
+    <section class="card" id="goveeCard" hidden>
+      <h2 data-i18n="card.lights"></h2>
+      <div id="goveeList"></div>
+    </section>
+    <section class="card" id="daikinCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.aircon"></h2><div class="meta" id="daikinMeta"></div></div>
+      <div id="daikinList"></div>
+    </section>
+    <section class="card" id="fuelCard" hidden>
+      <div class="cardHead"><h2 data-i18n="card.fuel"></h2><div class="meta" id="fuelMeta"></div></div>
+      <div class="fuelGrid" id="fuelList"></div>
+    </section>
+    <section class="card" id="houseEmpty">
+      <h2 data-i18n="card.houseEmpty"></h2>
+      <p class="note" data-i18n="house.empty"></p>
+    </section>
+  </div>
+
+</div>
+<div id="nightShade"></div>
+<div id="alertBanner" hidden></div>
+</body>
+</html>

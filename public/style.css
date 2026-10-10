@@ -1,0 +1,544 @@
+/* Vigie: a lookout's instrument panel at night. Every surface derives from one
+   theme color (config.json → theme.color) in OKLCH, so any hue keeps the same
+   balance. Functional colors stay fixed: they mean something. */
+
+@property --accent { syntax: "<color>"; inherits: true; initial-value: #b98cff; }
+
+:root {
+  --theme: #51007a;
+  /* background lightness and chroma, shifted by time of day and weather (data-sky) */
+  --sky-l: 0.175;
+  --sky-c: 0.065;
+  --abyss: oklch(from var(--theme) var(--sky-l) min(c, var(--sky-c)) h);
+  --hull: oklch(from var(--theme) 0.225 min(c, 0.06) h);
+  --hull-2: oklch(from var(--theme) 0.27 min(c, 0.065) h);
+  --rule: oklch(from var(--theme) 0.42 min(c, 0.05) h / 0.35);
+  --ink: oklch(from var(--theme) 0.96 min(c, 0.014) h);
+  --ink-2: oklch(from var(--theme) 0.8 min(c, 0.03) h);
+  --ink-3: oklch(from var(--theme) 0.63 min(c, 0.04) h);
+  --accent: oklch(from var(--theme) 0.78 min(c, 0.14) h);
+  --tint: color-mix(in oklab, var(--accent) 16%, transparent);
+  --amber: #f2b44c;
+  --coral: #ff7a72;
+  --mint: #5fd6a6;
+  --sky: #6cc5ff;
+  --ice: #d5ecff;
+  --ico-bg: var(--abyss);
+  --f-ui: "Bahnschrift", "DIN Alternate", "D-DIN", "Barlow", "Roboto Condensed", system-ui, sans-serif;
+  --f-text: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --r-panel: 18px;
+  --r-ctrl: 9px;
+}
+:root[data-sky="night"] { --sky-l: 0.145; --sky-c: 0.055; }
+:root[data-sky="dusk"]  { --sky-l: 0.19; --sky-c: 0.08; }
+:root[data-sky="cloud"] { --sky-l: 0.17; --sky-c: 0.05; }
+:root[data-sky="rain"]  { --sky-l: 0.16; --sky-c: 0.045; }
+:root[data-sky="snow"]  { --sky-l: 0.19; --sky-c: 0.04; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { height: 100%; }
+body {
+  min-height: 100%;
+  font-family: var(--f-ui);
+  font-size: 15px;
+  color: var(--ink);
+  background-color: var(--abyss);
+  transition: background-color 4s ease;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+.prose { font-family: var(--f-text); }
+.num, .v, .clock, td.r { font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); }
+.dim { color: var(--ink-3); }
+.err { color: var(--ink-3); font-size: 14px; }
+
+/* ---- Icons ---- */
+.ico { width: 1.25em; height: 1.25em; flex: none; vertical-align: -0.25em; }
+.ico .occ { fill: var(--ico-bg); }
+.ico .sun, .ico .warm { color: var(--amber); }
+.ico .wet { color: var(--sky); }
+.ico .ice { color: var(--ice); }
+.ico .alarm { color: var(--coral); }
+.ico .moon { color: var(--ink); }
+.moonPhase .moonDark { fill: color-mix(in oklab, var(--ink) 8%, transparent); stroke: color-mix(in oklab, var(--ink) 30%, transparent); stroke-width: 1.2; }
+.moonPhase .moonLit { fill: var(--ink); stroke: none; }
+
+/* ---- Page frame ---- */
+.wrap { position: relative; padding: 18px 26px 22px; display: flex; flex-direction: column; gap: 16px; transition: transform 1.5s ease; }
+/* anti burn-in shift on .wrap, not body: it would break position:fixed */
+.tabPane { display: flex; flex-direction: column; gap: 16px; }
+/* Overview groups (landscape) melt into the column here, back in reading order:
+   weather, air, electricity, system, processes. */
+#tabOverview > .col { display: contents; }
+/* fitToScreen() (main.js) zooms the page to the screen, the system card takes the height left */
+#tabOverview { flex: 1; }
+#sysCard { flex: 1; display: flex; flex-direction: column; }
+#energyCard, #sysCard { order: 1; }
+#tabOverview .grid2 { order: 2; }
+
+.tabnav { display: flex; gap: 30px; padding: 2px 2px 4px; }
+.tabnav span { position: relative; font-size: 18px; font-weight: 500; color: var(--ink-3); padding: 6px 0; cursor: pointer; transition: color .15s; }
+.tabnav span:hover { color: var(--ink-2); }
+.tabnav span.on { color: var(--ink); }
+.tabnav span.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+
+.card { position: relative; overflow: hidden; background: var(--hull); border-radius: var(--r-panel); padding: 20px 24px 22px; --ico-bg: var(--hull); }
+.card h2 { font-size: 17px; font-weight: 600; font-stretch: 87.5%; letter-spacing: .01em; color: var(--ink); margin-bottom: 16px; }
+.card h2.sub { margin-top: 22px; }
+.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.cardHead h2 { margin-bottom: 0; }
+.cardHead .meta { font-size: 14px; color: var(--ink-3); text-align: right; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* ---- Hero: the lookout's view, time over the sun's path ---- */
+.hero { padding: 10px 2px 4px; --ico-bg: var(--abyss); }
+.heroTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.clock { font-size: 150px; font-weight: 300; line-height: .86; letter-spacing: -.02em; }
+.clock .sec { font-size: .27em; letter-spacing: 0; color: var(--ink-3); margin-left: .25em; }
+.date { margin-top: 16px; font-size: 26px; color: var(--ink-2); }
+.date::first-letter { text-transform: uppercase; }
+.nameDay { margin-top: 4px; font-size: 17px; color: var(--ink-3); }
+.heroRight { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 52%; padding-top: 10px; }
+.hero { container-type: inline-size; }
+/* A narrow hero (landscape column, phone) puts the briefing and the pills under the clock. */
+@container (max-width: 900px) {
+  .heroTop { flex-direction: column; gap: 16px; }
+  .heroRight { max-width: none; align-items: flex-start; padding-top: 0; }
+  #alertsList, #changeBadges, #machineBadges { justify-content: flex-start; }
+}
+/* on a phone the day length no longer fits between sunrise and sunset */
+@container (max-width: 460px) {
+  .hzLabel.center { display: none; }
+}
+#alertsList, #changeBadges, #machineBadges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+#tempoBadge:empty, #changeBadges:empty, #alertsList:empty, #machineBadges:empty { display: none; }
+.warnGroup { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.warnGroup .area { color: var(--ink-3); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; padding: 5px 12px 5px 9px; border-radius: 99px; border: 1px solid currentColor; }
+.pill .ico { width: 16px; height: 16px; }
+.pill .ico * { color: inherit; }
+.pill.yellow { color: var(--amber); background: color-mix(in oklab, var(--amber) 12%, transparent); }
+.pill.orange { color: #ff9a4d; background: color-mix(in oklab, #ff9a4d 13%, transparent); }
+.pill.red    { color: var(--coral); background: color-mix(in oklab, var(--coral) 13%, transparent); }
+
+/* Sun path over 24 h: the curve is the real elevation, the horizon is graduated
+   hour by hour, the marker is the sun now. Labels sit in HTML so they keep their
+   size whatever the width. */
+.horizon { position: relative; margin-top: 20px; height: 136px; }
+.horizon > svg { position: absolute; inset: 0 0 auto 0; width: 100%; height: 104px; overflow: visible; }
+.horizon .hzLine { stroke: var(--rule); stroke-width: 1; }
+.horizon .hzTick { stroke: var(--ink-3); stroke-width: 1; opacity: .55; }
+.horizon .hzTick.major { opacity: .9; }
+.horizon .hzDay { fill: none; stroke: var(--amber); stroke-width: 2.4; }
+.horizon .hzFill { fill: url(#hzGrad); }
+.horizon .hzNight { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: .1 5; opacity: .75; }
+.horizon .hzNow { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 1 3; }
+.horizon .hzBand.golden { fill: url(#hzGold); }
+.horizon .hzBand.blue { fill: url(#hzBlue); }
+.hzSun { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 7px color-mix(in oklab, var(--amber) 18%, transparent); }
+.hzSun.night { background: var(--abyss); border: 1.5px solid var(--ink-3); box-shadow: none; }
+.hzHour { position: absolute; top: 91px; font-size: 12px; color: var(--ink-3); transform: translateX(-50%); }
+.hzHour.first { transform: none; }
+.hzHour.last { transform: translateX(-100%); }
+.hzLabel { position: absolute; top: 113px; font-size: 14px; color: var(--ink-2); white-space: nowrap; transform: translateX(-50%); }
+.hzLabel b { font-weight: 500; color: var(--ink); }
+.hzLabel.center { color: var(--ink-3); }
+.hzMoon { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-3); }
+/* masks the "now" line when the hour passes under the label */
+.hzMoon span { padding: 2px 6px; background: var(--abyss); transition: background-color 4s ease; }
+.hzMoon .ico { width: 30px; height: 30px; }
+
+.briefing { margin: 2px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--accent); font-size: 18px; line-height: 1.55; color: var(--ink-2); max-width: 72ch; }
+/* now playing, aligned with the briefing text */
+.nowPlaying { align-self: stretch; display: flex; align-items: center; gap: 14px; max-width: 72ch; padding: 6px 0 0 22px; }
+.npBtn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: var(--hull); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.npBtn .ico { width: 18px; height: 18px; }
+.npText { min-width: 0; }
+.npTitle { font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.npSub { font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Readouts: label, value, note, separated by hairlines ----
+   The negative margin hides the first rule of each row behind the panel edge. */
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-left: -20px; overflow: hidden; row-gap: 18px; }
+.readout { padding: 0 16px 0 20px; box-shadow: -1px 0 0 var(--rule); min-width: 0; }
+.readout .k { font-size: 14px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.readout .v { font-size: 26px; font-weight: 500; line-height: 1.2; margin-top: 4px; white-space: nowrap; }
+.readout .v .ico { width: 18px; height: 18px; color: var(--ink-2); }
+.windArrow { margin-left: 8px; vertical-align: -1px; }
+.readout .s { font-size: 13px; line-height: 1.4; color: var(--ink-3); margin-top: 3px; }
+.unit { font-size: .58em; font-weight: 400; color: var(--ink-3); margin-left: .12em; }
+.word { font-weight: 400; color: var(--ink-2); }
+
+/* label / value rows */
+.dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); column-gap: 32px; }
+.dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 15px; }
+.dl .k { color: var(--ink-3); white-space: nowrap; }
+.dl .v { text-align: right; white-space: nowrap; }
+
+/* ---- Weather ---- */
+#wxAnim { position: absolute; inset: 0; pointer-events: none; opacity: .5; }
+.wxHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 22px; }
+.wxNow { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.wxIcon .ico { width: 86px; height: 86px; }
+.wxTemp { font-size: 88px; font-weight: 300; line-height: .9; letter-spacing: -.02em; }
+.wxDesc { font-size: 24px; color: var(--ink); }
+.wxSub { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 15px; color: var(--ink-3); }
+.wxSub b { font-weight: 500; color: var(--ink-2); }
+#wxNormal { flex-basis: 100%; }
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--abyss); flex: none; }
+.seg button { font: inherit; font-size: 14px; color: var(--ink-3); background: none; border: 0; padding: 6px 13px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+.seg button.active { color: var(--ink); background: var(--hull-2); }
+#wxCard { container-type: inline-size; }
+/* six readouts stay on one line down to a narrow card */
+#wxReadouts { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+/* In a narrow card (landscape column) the city switcher stacks up on the right, on a
+   phone it goes under the temperature. */
+@container (max-width: 640px) {
+  .seg { flex-direction: column; }
+  .seg button { text-align: left; }
+}
+@container (max-width: 460px) {
+  .wxHead { flex-direction: column; }
+  .seg { flex-direction: row; }
+}
+.rainLine { display: flex; align-items: flex-end; gap: 16px; margin-top: 20px; }
+#rainLbl { font-size: 14px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+#rainBars { flex: 1; display: flex; gap: 5px; align-items: flex-end; height: 42px; }
+#rainBars .b { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; }
+#rainBars .bar { width: 100%; border-radius: 3px 3px 0 0; background: var(--sky); min-height: 2px; }
+#rainBars .h { font-size: 11px; color: var(--ink-3); }
+
+/* five days as ranges on one shared temperature scale */
+.forecast { margin-top: 18px; }
+.fcRow { display: grid; grid-template-columns: 64px 36px 54px 42px 1fr 42px; align-items: center; gap: 12px; padding: 5px 0; border-top: 1px solid var(--rule); font-size: 16px; }
+.fcRow .d { color: var(--ink-2); }
+.fcRow .d::first-letter { text-transform: uppercase; }
+.fcRow .i .ico { width: 30px; height: 30px; }
+.fcRow .pp { font-size: 13px; color: var(--sky); white-space: nowrap; }
+.fcRow .mn { color: var(--ink-3); text-align: right; }
+.fcRow .mx { color: var(--ink); text-align: right; }
+.track { position: relative; height: 6px; border-radius: 99px; background: color-mix(in oklab, var(--ink) 9%, transparent); }
+.track i { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
+.track .mark { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--hull); }
+
+/* ---- Air ---- */
+/* the European index bands behind a marker: where the city sits, not just a number */
+.aqiScale { margin-top: 10px; background: linear-gradient(90deg, #50f0e6 0 20%, #50ccaa 20% 40%, #f0e641 40% 60%, #ff5050 60% 80%, #ce4b78 80% 100%); opacity: .9; }
+.aqiScale::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: color-mix(in oklab, var(--hull) 55%, transparent); }
+.aqiScale .mark { background: var(--ink); z-index: 1; }
+#pollenLine { margin-top: 16px; font-size: 15px; color: var(--ink-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#pollenLine .ico { color: var(--mint); }
+
+/* ---- Electricity ---- */
+.tempoDot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.delta.up { color: var(--coral); } .delta.down { color: var(--mint); }
+
+/* ---- System ---- */
+#lhmStatus { font-size: 14px; color: var(--amber); margin-bottom: 14px; }
+.meters { display: grid; grid-template-columns: repeat(3, 1fr); margin-left: -20px; overflow: hidden; margin-bottom: 20px; }
+.meter { padding: 0 20px; box-shadow: -1px 0 0 var(--rule); min-width: 0; }
+.meter .k { font-size: 15px; color: var(--ink-3); }
+.meter .v { font-size: 48px; font-weight: 300; line-height: 1.05; letter-spacing: -.01em; }
+.meter .s { font-size: 14px; color: var(--ink-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter .s .dim { margin-left: 6px; }
+.spark { display: block; width: 100%; height: 40px; margin-top: 10px; overflow: visible; }
+.spark .line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.histCtl { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
+.histTabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 3px; border-radius: 12px; background: var(--abyss); }
+.histTabs span { font-size: 13px; padding: 5px 11px; border-radius: 9px; cursor: pointer; color: var(--ink-3); white-space: nowrap; }
+.histTabs span.on { color: var(--ink); background: var(--hull-2); }
+#histCanvas { width: 100%; flex: 1 1 0; min-height: 120px; margin-top: 14px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-3); margin-top: 8px; justify-content: center; }
+.legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; }
+
+/* ---- Tables ---- */
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+td { padding: 8px 0; border-top: 1px solid var(--rule); }
+td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left: 14px; }
+/* a long process name gets cut, never the figures */
+#procTable td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pHead td { font-size: 13px; color: var(--ink-3); border-top: 0; padding-top: 0; }
+.count { font-size: 12px; color: var(--ink-3); }
+
+/* ---- Storage and devices ---- */
+.diskRow + .diskRow { margin-top: 14px; }
+.diskRow .l { display: flex; justify-content: space-between; font-size: 15px; }
+.barline { height: 6px; border-radius: 99px; background: color-mix(in oklab, var(--ink) 9%, transparent); overflow: hidden; margin-top: 8px; }
+.barline i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width .6s; }
+#ssdHealth { margin-top: 14px; font-size: 14px; line-height: 1.5; color: var(--ink-2); display: flex; gap: 10px; align-items: baseline; }
+#ssdHealth .ico { color: var(--ink-3); }
+.btRow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; font-size: 15px; border-top: 1px solid var(--rule); }
+.btRow:first-child { border-top: 0; }
+.btRow > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.btRow .ico { color: var(--ink-3); }
+.btRow > .num { white-space: nowrap; }
+.btRow.stale { opacity: .55; }
+
+/* ---- Weather tab ---- */
+.tile { padding: 14px 16px; border-radius: 12px; background: var(--abyss); --ico-bg: var(--abyss); }
+.tile .nm { font-size: 14px; color: var(--ink-3); }
+.tile .big { font-size: 34px; font-weight: 300; line-height: 1.1; margin-top: 4px; }
+.tile .lab { font-size: 14px; margin-top: 2px; }
+.mtCity { padding: 14px 16px; border-radius: 12px; cursor: pointer; background: var(--abyss); border: 1px solid transparent; transition: border-color .15s; --ico-bg: var(--abyss); }
+.mtCity.on { border-color: color-mix(in oklab, var(--accent) 55%, transparent); }
+.mtCity .nm { font-size: 14px; color: var(--ink-3); }
+.mtCity.on .nm { color: var(--ink); }
+.mtCity .hd { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.mtCity .hd .ico { width: 34px; height: 34px; }
+.mtCity .hd .tp { font-size: 34px; font-weight: 300; line-height: 1; }
+.mtCity .hd .mm { margin-left: auto; font-size: 14px; color: var(--ink-3); }
+.mtCity .desc { font-size: 14px; color: var(--ink-2); margin-top: 4px; }
+.mtCity .det, .tile .det { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.mtCity .det > div, .tile .det > div { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.mtCity .det .k, .tile .det .k { color: var(--ink-3); }
+.mtCity .det .v, .tile .det .v { color: var(--ink-2); }
+.triRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.pressure { display: grid; grid-template-columns: auto 1fr; gap: 32px; align-items: center; }
+.pressNow .v { font-size: 34px; font-weight: 300; line-height: 1.1; }
+.pressNow .s { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 14px; color: var(--ink-2); white-space: nowrap; }
+.pressNow .s.fast { color: var(--amber); }
+.trendArrow { display: inline-flex; }
+.trendArrow .ico { width: 16px; height: 16px; }
+.pressChart svg { display: block; width: 100%; height: 76px; }
+.pressChart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.pressChart .now { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 1 3; }
+.pressChart .axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+.mtHourRow { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; overflow-x: auto; }
+.mtH { text-align: center; padding: 8px 2px; border-radius: 10px; background: var(--abyss); --ico-bg: var(--abyss); }
+.mtH .hr { font-size: 12px; color: var(--ink-3); }
+.mtH .ic .ico { width: 26px; height: 26px; margin: 4px 0; }
+.mtH .tp { font-size: 16px; font-weight: 500; }
+.mtH .rain { height: 26px; display: flex; align-items: flex-end; justify-content: center; margin-top: 4px; }
+.mtH .rain i { display: block; width: 55%; border-radius: 2px 2px 0 0; background: var(--sky); }
+.mtH .pp { font-size: 11px; color: var(--ink-3); }
+.mtH .pp.on { color: var(--sky); font-weight: 600; }
+.mtH .vt { font-size: 11px; color: var(--ink-3); }
+.mtLeg { font-size: 13px; color: var(--ink-3); margin-top: 10px; text-align: center; }
+.mtLeg.left { text-align: left; }
+.mtLeg.gap { margin-top: 14px; }
+#mtWeek td { padding: 9px 0; }
+#mtWeek .today { font-weight: 600; }
+#mtWeek .ico { width: 24px; height: 24px; margin-right: 6px; }
+#mtPollens table td { padding: 7px 0; }
+.chgLine { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--rule); }
+.chgLine:first-child { border-top: 0; }
+.chgLine .ic .ico { width: 18px; height: 18px; vertical-align: -3px; }
+.chgLine .t { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.chgLine.alert .t, .chgLine.alert .ic { color: var(--coral); }
+.chgLine.info .t, .chgLine.info .ic { color: var(--amber); }
+.chgLine .d { font-size: 14px; color: var(--ink-2); }
+#mtAlerts .chgLine .t { white-space: normal; }
+#changeCard { box-shadow: inset 2px 0 0 var(--amber); }
+#changeCard.alert { box-shadow: inset 2px 0 0 var(--coral); }
+
+/* ---- Snow ---- */
+.snowTop { display: flex; align-items: center; gap: 18px; padding: 16px 18px; margin-bottom: 8px; border-radius: 12px; background: var(--abyss); --ico-bg: var(--abyss); }
+.snowTop .ic .ico { width: 40px; height: 40px; }
+.snowTop .nm { font-size: 14px; color: var(--ink-2); }
+.snowTop .d { font-size: 38px; font-weight: 500; line-height: 1.05; }
+.snowTop .d.text { font-size: 22px; }
+.snowTop .sub { font-size: 13px; color: var(--ink-3); margin-top: 3px; }
+.snowTop .right { margin-left: auto; text-align: right; font-size: 13px; color: var(--ink-2); }
+.snowLine { display: grid; grid-template-columns: minmax(0, 1.5fr) 56px minmax(50px, 1fr) 66px 44px 84px; align-items: center; gap: 12px; padding: 8px 2px; font-size: 14px; border-top: 1px solid var(--rule); }
+.snowLine .alt, .snowLine .tp { font-size: 13px; color: var(--ink-3); }
+.snowLine .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snowLine .cm { text-align: right; font-weight: 600; }
+.snowLine .nx { text-align: right; font-size: 13px; color: var(--sky); }
+.snowLine .nx.none { color: var(--ink-3); }
+.snowBar { height: 5px; border-radius: 99px; background: color-mix(in oklab, var(--ink) 9%, transparent); overflow: hidden; }
+.snowBar i { display: block; height: 100%; border-radius: 99px; background: var(--ice); }
+#radarMap { height: 340px; border-radius: 12px; overflow: hidden; background: #0c0c14; }
+#radarMap .baseDark { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+#radarMap .radarRecenterCtl a { background: rgba(20,20,30,.85); color: var(--ink-2); border-color: var(--rule); font-size: 15px; }
+#radarMap .leaflet-control-attribution { background: rgba(0,0,0,.5); color: var(--ink-3); font-size: 10px; }
+#radarMap .leaflet-control-attribution a { color: var(--ink-2); }
+#radarMap .leaflet-control-zoom a { background: rgba(20,20,30,.85); color: var(--ink-2); border-color: var(--rule); }
+
+/* ---- Machine tab ---- */
+.machRow { display: flex; gap: 18px; padding: 10px 0; font-size: 15px; border-top: 1px solid var(--rule); }
+.winStatus { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; color: var(--amber); background: color-mix(in oklab, var(--amber) 10%, transparent); }
+.svcRow { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 15px; }
+.svcRow:first-child { border-top: 0; }
+.svcRow .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.svcRow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svcRow .d { font-size: 14px; color: var(--ink-3); white-space: nowrap; }
+.machRow:first-child { border-top: 0; }
+.machRow .ml { flex: none; width: 140px; color: var(--ink-3); }
+.machRow .mv { flex: 1; color: var(--ink-2); line-height: 1.45; }
+.machRow .mv b { color: var(--ink); font-weight: 500; }
+.machRecent { color: var(--accent); }
+.streak { font-size: 30px; font-weight: 300; margin-bottom: 4px; }
+.crashFreq { font-size: 15px; margin-bottom: 14px; }
+.crashFreq.tight { margin-bottom: 6px; }
+.crashSplit { font-size: 14px; margin-bottom: 14px; color: var(--ink-2); }
+.incRow { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; font-size: 14px; border-top: 1px solid var(--rule); }
+.incRow .it { color: var(--ink-2); }
+.natTag { font-size: 13px; margin-left: 8px; }
+.crashDetail { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.crashTitle { font-size: 15px; margin-bottom: 8px; }
+.crashTitle b { color: var(--coral); font-weight: 600; }
+.hint { font-size: 14px; line-height: 1.5; color: var(--ink-2); padding: 3px 0 3px 14px; border-left: 2px solid var(--rule); margin: 4px 0; }
+.crashTable { margin-top: 12px; font-size: 13px; }
+.crashTable td { padding: 5px 0; }
+.monthRow { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; margin-top: 26px; }
+.monthCol { text-align: center; }
+.monthCol.empty { opacity: .3; }
+.monthCol .bar { height: 76px; display: flex; align-items: flex-end; }
+.monthCol .bar i { display: block; width: 100%; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--accent); opacity: .75; }
+.monthCol .bar i.now { background: var(--sky); opacity: 1; }
+.monthCol .m { font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+.monthCol .m::first-letter { text-transform: uppercase; }
+.monthCol .k { font-size: 13px; font-weight: 600; }
+.monthCol .e { font-size: 11px; color: var(--ink-3); }
+.monthCol .p { font-size: 10px; color: var(--amber); margin-top: 2px; }
+.monthCol .p.dim { color: var(--ink-3); }
+.yearNote { margin-top: 14px; font-size: 13px; color: var(--ink-3); line-height: 1.5; max-width: 80ch; }
+.stripWrap { margin-top: 18px; }
+.stripLegend { font-size: 13px; color: var(--ink-3); }
+.dayStrip { display: flex; gap: 2px; align-items: flex-end; height: 46px; margin-top: 8px; }
+.dayStrip i { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; }
+
+/* ---- Tools tab ---- */
+#toolsList { display: flex; flex-direction: column; gap: 18px; }
+.tgHead { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.tgIcon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: 18px; background: var(--abyss); }
+.tgIcon .ico { width: 20px; height: 20px; color: var(--accent); }
+.tgName { font-size: 18px; font-weight: 600; font-stretch: 87.5%; }
+.toolRel { margin-bottom: 16px; }
+.relRow { display: flex; align-items: center; gap: 12px; padding: 9px 2px; font-size: 15px; color: var(--ink-2); cursor: pointer; border-top: 1px solid var(--rule); }
+.relRow:first-child { border-top: 0; }
+.relRow:hover { color: var(--ink); }
+.relRow .rn { flex: 1; }
+.relRow .rv { font-size: 14px; font-weight: 600; color: var(--accent); }
+.relRow .rd { font-size: 13px; color: var(--ink-3); white-space: nowrap; min-width: 92px; text-align: right; }
+.relNew { font-size: 12px; font-weight: 600; color: var(--mint); }
+.rloc { font-size: 13px; white-space: nowrap; }
+.rloc.late { color: var(--amber); }
+.rloc.ok { color: var(--mint); }
+.toolLinks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.toolLink { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; padding: 11px 14px; border-radius: var(--r-ctrl); cursor: pointer; color: var(--ink-2); background: var(--abyss); transition: color .15s; }
+.toolLink .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolLink .ico { flex: none; width: 16px; height: 16px; color: var(--ink-3); }
+.toolLink:hover { color: var(--ink); }
+.toolLink:hover .ico { color: var(--accent); }
+
+/* ---- House tab ---- */
+.houseRow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid var(--rule); }
+.fuelGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 32px; }
+.fuelName { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 15px; font-weight: 600; }
+.fuelName .ico { width: 18px; height: 18px; color: var(--accent); }
+.fuelRow { display: grid; grid-template-columns: 78px 1fr; gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--rule); }
+.fuelRow .p { font-size: 16px; font-weight: 600; }
+.fuelRow.best .p { font-size: 22px; color: var(--mint); }
+.fuelRow .a { min-width: 0; font-size: 14px; color: var(--ink-2); }
+.fuelRow .a .dim { display: block; font-size: 13px; }
+.houseRow:first-child { border-top: 0; }
+.houseRow > span:first-child { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.houseRow > span:first-child .ico { color: var(--ink-3); }
+.houseRow .ctrl { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.houseOffline { color: var(--ink-3); font-size: 14px; }
+.note { color: var(--ink-2); font-size: 15px; line-height: 1.55; }
+/* fixed width: the bold "on" label must not shift the rows depending on state */
+.pwrBtn { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 99px; cursor: pointer; min-width: 84px; text-align: center; border: 1px solid var(--rule); background: transparent; color: var(--ink-3); }
+.pwrBtn.on { border-color: transparent; background: var(--tint); color: var(--ink); font-weight: 600; }
+.tempStep { display: flex; align-items: center; gap: 8px; }
+.tempStep button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
+.tempStep .v { min-width: 44px; text-align: center; font-weight: 600; }
+/* Custom controls: the native <select> and <input type=color> open popups outside
+   the DOM that cannot be styled. */
+.houseRow input[type=range] { -webkit-appearance: none; appearance: none; width: 96px; height: 4px; border-radius: 99px; background: var(--rule); outline: none; cursor: pointer; }
+.houseRow input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+.swatchRow { display: flex; gap: 6px; }
+.swatch { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255,255,255,.18); padding: 0; cursor: pointer; }
+.swatch.on { box-shadow: 0 0 0 2px var(--hull), 0 0 0 3.5px var(--accent); }
+.swatch.more { background: conic-gradient(red, #ff0, lime, cyan, blue, magenta, red); }
+.colorPicker { z-index: 130; background: var(--hull-2); border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); width: 176px; }
+.svBox { position: relative; width: 100%; height: 112px; border-radius: 8px; cursor: crosshair; margin-bottom: 10px; background: linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, rgba(255,255,255,0)); }
+.svDot { position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.5); transform: translate(-50%, -50%); pointer-events: none; }
+.hueSlider { width: 100%; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 99px; cursor: pointer; outline: none; background: linear-gradient(to right, red, #ff0, lime, cyan, blue, magenta, red); }
+.hueSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid rgba(0,0,0,.3); cursor: pointer; }
+.ddownBtn { font: inherit; font-size: 14px; padding: 6px 26px 6px 12px; border-radius: var(--r-ctrl); cursor: pointer; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); white-space: nowrap; position: relative; }
+/* minimum width per field (longest label of the menu): two units on different
+   settings would otherwise get misaligned columns */
+.ddownBtn[data-field="mode"] { min-width: 86px; }
+.ddownBtn[data-field="f_rate"] { min-width: 104px; }
+.ddownBtn[data-field="f_dir"] { min-width: 118px; }
+.ddownBtn::after { content: ""; position: absolute; right: 11px; top: 50%; width: 6px; height: 6px; border-right: 1.4px solid var(--ink-3); border-bottom: 1.4px solid var(--ink-3); transform: translateY(-65%) rotate(45deg); }
+.ddownMenu { z-index: 130; background: var(--hull-2); border-radius: 12px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 1px; }
+.ddownOpt { font: inherit; font-size: 14px; padding: 8px 12px; border-radius: 8px; text-align: left; border: none; background: transparent; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.ddownOpt:hover { background: var(--tint); color: var(--ink); }
+.ddownOpt.on { color: var(--accent); font-weight: 600; }
+.ddownOpt.muted { color: var(--ink-3); cursor: default; }
+.ddownOpt.muted:hover { background: none; }
+.sceneMenu { max-height: 280px; overflow-y: auto; min-width: 150px; }
+.confirmOverlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+.confirmBox { background: var(--hull-2); border-radius: 16px; padding: 22px 24px; max-width: 320px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.confirmBox p { font-size: 16px; color: var(--ink); margin-bottom: 18px; line-height: 1.45; }
+.confirmBtns { display: flex; justify-content: flex-end; gap: 10px; }
+.confirmBtns button { font: inherit; font-size: 14px; padding: 8px 18px; border-radius: 99px; cursor: pointer; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); }
+.confirmBtns .confirmOk { border-color: transparent; background: var(--tint); color: var(--ink); font-weight: 600; }
+
+/* ---- Overlays ---- */
+#nightShade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 3s; z-index: 99; }
+#alertBanner { position: fixed; top: 0; left: 0; right: 0; z-index: 120; padding: 10px 16px; text-align: center; font-size: 16px; font-weight: 600; background: color-mix(in oklab, var(--coral) 92%, black); color: #fff; animation: alertPulse 1.3s ease-in-out infinite; }
+@keyframes alertPulse { 50% { opacity: .6; } }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---- Landscape screens: cards flow into columns instead of one long strip ----
+   CSS columns balance cards of different heights, which a fixed grid can't do. */
+@media (orientation: landscape) and (min-width: 1280px) {
+  .wrap { max-width: none; padding: 22px 30px 30px; }
+  .tabPane { display: block; column-count: 2; column-gap: 18px; }
+  .tabPane > * { break-inside: avoid; margin-bottom: 18px; }
+  .tabPane > #toolsList { display: block; break-inside: auto; margin-bottom: 0; }
+  #toolsList > .card { break-inside: avoid; margin-bottom: 18px; }
+  /* Fixed groups for the Overview: CSS columns follow the page order and left the first
+     column too tall for a 1080p screen. */
+  #tabOverview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  #tabOverview > .col { display: flex; flex-direction: column; gap: 16px; margin-bottom: 0; }
+  #tabOverview > .col:first-child { grid-row: span 2; }
+  /* the columns end on the same line: the forecast rows, the chart and the lists stretch */
+  #tabOverview .grid2 { flex: 1; }
+  #wxCard { flex: 1; display: flex; flex-direction: column; }
+  #forecast { flex: 1; display: flex; flex-direction: column; }
+  .fcRow { flex: 1; }
+  .clock { font-size: 116px; }
+  .horizon { margin-top: 18px; }
+  .fcRow { padding: 6px 0; }
+}
+@media (orientation: landscape) and (min-width: 1600px) {
+  #tabOverview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #tabOverview > .col:first-child { grid-row: auto; }
+}
+@media (orientation: landscape) and (min-width: 2200px) {
+  .tabPane { column-count: 3; }
+}
+
+/* ---- Narrow screens (phone, small window) ---- */
+@media (max-width: 720px) {
+  .wrap { padding: 14px 12px 22px; }
+  .clock { font-size: 96px; }
+  .tabnav { gap: 18px; overflow-x: auto; }
+  .tabnav span { font-size: 16px; white-space: nowrap; }
+  .wxTemp { font-size: 64px; }
+  .wxIcon .ico { width: 64px; height: 64px; }
+  .grid2, .dl { grid-template-columns: 1fr; }
+  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .meters { grid-template-columns: 1fr; row-gap: 16px; }
+  .meter .v { font-size: 38px; }
+  .card { padding: 18px 16px; }
+  .fcRow { grid-template-columns: 52px 30px 44px 34px 1fr 34px; gap: 8px; }
+  .snowLine { grid-template-columns: minmax(0, 1fr) 66px 44px 70px; }
+  .snowLine .alt, .snowLine .snowBar { display: none; }
+  .monthCol .e { display: none; }
+  .machRow .ml { width: 96px; }
+  .houseRow { flex-wrap: wrap; }
+  .pressure { grid-template-columns: 1fr; gap: 14px; }
+  .hzMoon span { display: none; }
+}

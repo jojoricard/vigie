@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax of the agent
+        run: for f in agent.js lib/*.js; do node --check "$f"; done
+      # The page modules are ES modules: checked under an .mjs name.
+      - name: Syntax of the page
+        run: for f in public/js/*.js; do cp "$f" "$RUNNER_TEMP/$(basename "$f" .js).mjs"; node --check "$RUNNER_TEMP/$(basename "$f" .js).mjs"; done
+      - name: Tests
+        run: node --test

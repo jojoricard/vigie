@@ -1,0 +1,18 @@
+# Personal config (API keys, cities, screen position)
+config.json
+start-dashboard.local.bat
+
+# Data and caches written by the agent
+vigie.db
+vigie.db-wal
+vigie.db-shm
+backups/
+.briefing.json
+.batteries.json
+*.bak
+
+# Chrome profile of the kiosk mode
+chrome-profile/
+
+# Local Claude Code settings
+.claude/
