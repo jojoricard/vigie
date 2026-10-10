@@ -226,7 +226,8 @@ body {
 
 /* ---- Air ---- */
 /* the European index bands behind a marker: where the city sits, not just a number */
-.aqiScale { margin-top: 10px; background: linear-gradient(90deg, #50f0e6 0 20%, #50ccaa 20% 40%, #f0e641 40% 60%, #ff5050 60% 80%, #ce4b78 80% 100%); opacity: .9; }
+/* room under the bar: .readouts hides its overflow, the marker would be cut */
+.aqiScale { margin: 10px 0 6px; background: linear-gradient(90deg, #50f0e6 0 20%, #50ccaa 20% 40%, #f0e641 40% 60%, #ff5050 60% 80%, #ce4b78 80% 100%); }
 .aqiScale::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: color-mix(in oklab, var(--hull) 55%, transparent); }
 .aqiScale .mark { background: var(--ink); z-index: 1; }
 #pollenLine { margin-top: 16px; font-size: 15px; color: var(--ink-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
