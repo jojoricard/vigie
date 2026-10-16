@@ -14,5 +14,3 @@ backups/
 # Chrome profile of the kiosk mode
 chrome-profile/
 
-# Local Claude Code settings
-.claude/
