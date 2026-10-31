@@ -81,7 +81,10 @@ export async function maybeBriefing() {
     console.warn("Vigie:", e.message);
     return;
   }
-  if (!j.text) return;
+  if (!j.text) {
+    if (j.error) console.warn("Vigie: briefing:", j.error);
+    return;
+  }
   $("briefing").textContent = j.text;
   $("briefing").hidden = false;
   doneFor = today;
