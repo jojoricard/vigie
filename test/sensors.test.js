@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseLhm, toSample } = require('../lib/sensors');
+const { parseLhm, toSample, withFallbacks } = require('../lib/sensors');
 
 // A trimmed LibreHardwareMonitor tree, with the traps the parser must avoid.
 const node = (Text, children = []) => ({ Text, Children: children });
@@ -57,4 +57,14 @@ test('fans keep their source, and the sample splits GPU from system fans', () =>
   assert.equal(s.fs, 1200);
   assert.equal(s.c, 61.5);
   assert.equal(s.pc, 40);
+});
+
+test('without LHM\'s memory module, the RAM load comes from the OS', () => {
+  const noRam = node('Sensor', [node('PC', [node('CPU', [sensor('CPU Total', 'Load', '/intelcpu/0/load/0', '12,0 %')])])]);
+  const p = withFallbacks(parseLhm(noRam));
+  assert.ok(p.ramLoad > 0 && p.ramLoad < 100);
+  assert.ok(p.ramUsed > 0);
+  assert.equal(toSample(p).r, p.ramLoad);
+  // LHM's own figure wins when it is there
+  assert.equal(withFallbacks(parseLhm(tree)).ramLoad, 55);
 });

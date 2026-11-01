@@ -54,6 +54,8 @@ There are two catch-all points, on purpose: the HTTP handler answers 500 instead
 
 LibreHardwareMonitor's tree is parsed once, by the agent (`lib/sensors.js`). The same result feeds the page (`/sensors`) and the samples stored every 30 s, so the two can't pick different sensors. The traps it handles: two "Memory" loads (physical and virtual, told apart by their parent), the GPU hotspot listed before the core, NVMe drives exposing a controller temperature next to the composite one, values written with a decimal comma.
 
+The agent reads LHM at most once per `lhmPollMs` (5 s by default) and serves that result to every caller, the page included. LHM itself is set to the same interval, and to the CPU, GPU, storage and network only: its memory module reads the DIMMs' SPD over SMBus (the bus iCUE drives for the RGB), its motherboard module the Super I/O and its controller module the AIO (both owned by NZXT CAM). Two programs on one of those buses is a classic cause of full freezes with nothing in the logs. The RAM load therefore comes from the OS (`withFallbacks`), the liquid temperature stays in CAM and the card simply hides it.
+
 ## Storage
 
 `vigie.db` gets one sample every 30 s, purged after 30 days. The `daily` table keeps one row per day (kWh, hours on, max temperatures, disk space) and is never purged. Today and yesterday are recomputed every 10 minutes, because yesterday may be incomplete after an agent restart.

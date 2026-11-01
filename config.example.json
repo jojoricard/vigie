@@ -4,6 +4,7 @@
   "country": "FR",
   "theme": { "color": "#51007a" },
   "lhmUrl": "http://127.0.0.1:8085/data.json",
+  "lhmPollMs": 5000,
   "lgstrayUrl": "http://127.0.0.1:12321",
   "anthropicApiKey": "",
   "goveeApiKey": "",

@@ -125,11 +125,20 @@ function queueFit() {
   requestAnimationFrame(() => { fitQueued = false; fitToScreen(); });
 }
 
-// Runs fn now, then every `ms`.
+// Runs fn now, then every `ms`. A turn that falls while the page is not visible
+// (another window over the kiosk, screen asleep) is skipped, nothing to redraw and
+// nothing asked of the agent, and caught up as soon as the page shows again.
+const timers = [];
 function every(ms, fn) {
   fn();
-  setInterval(fn, ms);
+  const t = { fn, missed: false };
+  timers.push(t);
+  setInterval(() => { if (document.hidden) t.missed = true; else fn(); }, ms);
 }
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  for (const t of timers) if (t.missed) { t.missed = false; t.fn(); }
+});
 
 (async function init() {
   every(1000, tickClock);
@@ -152,7 +161,7 @@ function every(ms, fn) {
   every(MIN, updateDimming);
   every(5 * MIN, pixelShift);
   every(MIN, refreshSparks);
-  every(2000, refreshSensors);
+  every(5000, refreshSensors);          // LibreHardwareMonitor refreshes every 5 s, the agent caches as long (lhmPollMs)
   every(MIN, refreshHistory);
   every(30000, refreshSystem);          // matches the agent's cache (see PROC_TTL_MS)
   every(5 * MIN, refreshDevices);
@@ -166,7 +175,7 @@ function every(ms, fn) {
   every(6 * 60 * MIN, refreshTools);
   every(6 * 60 * MIN, refreshNameDay);
   every(6 * 60 * MIN, refreshHolidays);
-  every(5000, refreshMedia);
+  every(10000, refreshMedia);           // one PowerShell round trip each time
   every(5 * MIN, refreshServices);
   every(30 * MIN, refreshWindows);
   every(30 * MIN, refreshFuel);
