@@ -185,13 +185,63 @@ Daikin (BRP069 and BRP072 adapters, local API without a key):
 - `set_control_info` expects every field on every call. The driver reads the current state and only changes what is asked, otherwise sending a temperature resets the mode and the fan speed
 - each mode keeps its own target. A change of mode sends the target kept for the new mode: the current one may be `M` (dry) or `--` (fan), which the unit refuses
 - energy comes from the per-unit counters (`get_day_power_ex` and its week and year siblings). On a multi-split, `get_week_power` gives the total of the outdoor unit, the same figure on every indoor unit: summed over the rooms it would count the bill several times
-- powerful and eco are offered when the unit reports its special modes. The on/off timer and the weekly program are only reported as active or not: the format of their entries is documented nowhere, and writing a guess into a heating device is not an option
+- powerful and eco are offered when the unit reports its special modes
+- the weekly program lives in the unit, so it runs with the PC off: the service reads it and writes it there, and never runs one itself. Its format is documented nowhere and was read on real units, one program made in the manufacturer's app for the purpose. `get_scdltimer_info` gives the layout of an entry (`f_detail`, the fields in order with their widths), the active program among three and six entries a day. `get_scdltimer_body?target=N` gives a count per day and the entries, fixed-width strings: `11420.50390B------` is enabled, on, heat, 20.5, minute 390 of the day (06:30), quiet fan, then vane, humidity and special mode left blank. The time is the minute of the day, not hours and minutes: `0390` read as 03:90 is what gave it away. An entry that turns the unit off, or on in dry mode, has dashes for what it does not carry. `set_scdltimer_body` and `set_scdltimer_info` take the same keys back: sending a program back as read left the unit unchanged, which is how the write was first tried
+- writing a program is guarded, since a guess does not go into a heating device: only the modes whose entries have been seen can be asked for (heat, cool, dry), an entry that did not change goes back as the very string that came (so one in auto mode made in the app survives), a changed one keeps the fields nobody sets here, and the program is read back after the write: a unit that answers OK without keeping it is an error
+- the editor works on a draft and saves it in one go. Each change sent as it is made would be a string of slow requests to the unit, and a half-edited program would run in between
+- the on/off timer is still only known as active or not: the app in use offers no way to set one, so no entry could be read. It is not emulated by the service either, for the reason schedules live in the devices
 
 Cozytouch (Atlantic, Thermor, Sauter, through the Overkiz cloud): written after pyoverkiz and Home Assistant's integration for an electric towel dryer, and only tested on simulated answers until a heater is installed. Off until its credentials are in the config. Boost and drying are one "temporary state" of the heater: leaving either goes back to plain heating.
 
 Security: the service will leave the PC, so it has a token from the start. Listening on the machine only, local callers need none, as for the agent. On a network address every request needs it, and the service refuses to start without one. A page of another site is refused unless it holds the token. The one GET that acts, to run a scene from a button, always asks for the token. Heating devices ask for confirmation for anything that costs (turning on, changing a running unit), never for turning off.
 
 The service writes no file: the lamps found by a scan are kept in memory.
+
+### Plan
+
+The plan of a home is private, and this repository is public. The engine is here (schema, drawing, interactions) with a made-up flat for the tests and the screenshots. A real plan stays in a file outside the repository, named by `house.planPath`, and reaches the page through `GET /api/v1/plan` only: the agent serves the files of `public/` and nothing else, so a plan dropped there would be readable by anything that can reach the port. A test fails if a plan appears under `public/`.
+
+The route follows the access rules of the service instead of always asking for the token: the page has no token, and it reads the plan like it reads the rooms. From the machine itself no token is needed, a page of another site is refused, and on a network address every request needs the token.
+
+Adding a device is adding an anchor: its id, and a place or the id of its window. The code does not know the devices of anybody's home. An anchor whose device or opening is gone is left out with a warning rather than failing the plan: removing a lamp from the config must not blank the screen. A plan that breaks the schema is refused whole, a half-drawn home being worse than none.
+
+Drawing:
+
+- three.js is the only third-party code of the page, copied in `public/vendor/three/` at one pinned version with its licence: no npm, no build, no CDN. r170 because it is the last release whose module is one file. It is loaded only when the House tab has a plan to draw
+- walls are cut at 1.25 m, as on an architect's model: at full height the near walls hide the rooms. Window frames and shutters rise above the cut, since a shutter needs its full travel to say how far down it is
+- an orthographic camera: no perspective to distort the rooms, and the labels keep one size
+- the picture is drawn on demand: after a change of state, a move of the camera, a resize. Nothing runs when the plan is still. The one animation, the breath of an air conditioner that runs, ticks at 20 images a second, stops when the tab or the page is hidden, and is not played at all under `prefers-reduced-motion` (views then change without a glide)
+- `devicePixelRatio` is capped at 1.5: above, a 4K screen in portrait draws twice the pixels for edges nobody tells apart
+- labels and markers are HTML laid over the canvas, placed by projecting their point: text stays sharp and in the page's font, a marker is a real button for the keyboard and a screen reader, and a press on it opens the same detail panel as its tile. Nothing of the controls is duplicated on the plan: tiles stay the main way to act
+- a marker says what a device is by its icon and how it is by its color: a lit lamp is a dot of its own color, an air conditioner takes the color of its mode (the same on its tile and on its breath), anything off is small and grey. One glance tells what runs, without reading
+- every room is named, the small ones in small. A room that holds devices also says what runs in it ("Living room · 20.4° · 21° · 2 lamps"). Markers stand where their device is and do not move, so a name takes the free spot closest to the middle of its floor: on it, else just below or above, else beside. The middle is the point furthest from the edges, not the centroid, which for a hall shaped like an L falls in the next room
+- the frame is worked out from the home, not set by hand: its corners are projected for the angle of the view and the shape of the card, and the tighter side takes 90 % of the picture. It holds while turning and at every resize. A span in meters tuned on one plan left wide margins on another, and on the same one once the card changed shape
+- the model view has no fixed angle either. On a wide card it is the usual three-quarter view. On a tall one, the same view leaves a third of the card empty, so it looks from higher and more from the front, chosen among a few angles as the one at which the home covers most of the picture. Once turned by hand, the angle is the hand's
+- a lit lamp warms the floor of its room with its color. The light is painted on a picture laid over that floor, not thrown by a light of the 3D scene: without shadows, such a light crosses the walls and lights the next room, which is the opposite of what the plan must say. A room where nothing is on stays dark
+- floors are told apart by material with a slight tint and a pattern (boards, tiles, slabs outdoors), furniture is a lighter grey almost without hue, and the cut top of the walls is the clearest line of the picture. Furniture in the tint of the theme, as first drawn, merged with the floors
+- daylight follows the real sun: its place in the sky over the home city (the first one of the config) and the `north` of the plan give the side the light comes from, warmer when the sun is low. At night that light is off and the sky dims, so the lamps that are on are what lights the model. It is kept faint and has no shadows: walls cut at 1.25 m would throw shadows no real room has. The sun is read by quarter of an hour, on the redraw the tab already makes every minute: no timer of its own
+- a balcony or a loggia is drawn as outdoors: a floor of slabs a step lower, and a low rail on the sides no wall closes
+- a lit lamp shows its real color, the one of its tile. The tint of a room comes from the room's own sensor, never from the probe of an air conditioner, and stays neutral between 19 and 21 °C: a tint is there to point at a room that is off, not to color a home that is fine
+- rotation is bounded (the camera does not go under the floor or flip over) and zoom stops at the whole plan. A plain wheel scrolls the page as everywhere else, zooming takes Ctrl or a pinch. A finger moving up or down scrolls the page too, where the page scrolls
+- under 720 px, or without WebGL, the same plan is drawn from above as SVG by `planSvg()`: a model that small is unreadable, and a kiosk whose GPU is blocked still gets its plan. That view is a pure function of the plan and the states, which is also what the tests check
+
+The pure part (`public/js/plan.js`: geometry, choice of the module of a device, limits of the camera, the SVG) knows neither the page nor three.js, so it runs under `node --test`. `plan3d.js` only draws.
+
+One module per type of device in `plan3d.js` (`light`, `climate`, `heater`, `cover`, `sensor`). The module is chosen by the type, and by the capabilities for a type the page does not know: the shutters of a brand to come will be drawn as soon as their driver reports a `position`.
+
+The `demo` driver keeps made-up devices in memory. It exists so the tab, the plan and the screenshots can be shown without any hardware and without anybody's home.
+
+### Tab
+
+The tab fits the screen, like the Overview: on a wall screen nobody scrolls. Upright, the plan takes at least half of the height, then the scenes, then the tiles. Lying down, the plan sits beside them. When the tiles are too many for their share, they are the ones that tighten, in three looks (small cards, rows, tight rows): the plan never shrinks, since a plan too small to read is worth nothing while a tile still says its figure at 46 px. What the tiles do not use goes to the plan. Under 720 px wide the tab scrolls as before.
+
+One grid for every room instead of one row of tiles per room: a room with a single device left three quarters of a row empty, and four rooms cost four titles. The room is written small on each tile, and what runs in a room is said on the plan. Framing a room on the plan dims the tiles of the others.
+
+A lit lamp tints its tile with its color at a quarter strength, with a band of the full color on the left. Filled with the color, as first done, a room of warm white lamps turned the screen brown, and the text had to switch between dark and light with the color.
+
+A tile and its marker on the plan point at each other: the one under the pointer shows on the other side. On a touch screen a tap does it for a moment, since nothing hovers there.
+
+Fuel prices left the tab for Tools: they are not the home, and their card was what made the tab scroll.
 
 ## Services
 
@@ -283,5 +333,11 @@ Logitech Lightspeed devices fall asleep and stop answering. The last known value
 
 ## Discarded ideas
 
+- Controls on the plan (a slider on a lamp, a setpoint on an air conditioner): the plan shows where things are and what they do, the tiles act. Two places to set the same value drift apart, and a slider on a tilted floor is hard to hit.
+- A light of the 3D scene per lamp: it crosses the walls. See the plan.
+- Shadows for the daylight: they belong to walls cut at mid-height, not to the home.
+- A list of the devices of the framed room under the plan: the tiles are that list, it only showed them twice.
+- A plan file in `public/` read as a static file: it would have put the layout of a home one `git add` away from a public repository.
+- Continuous rendering at 60 images a second with shadows: a wall screen that is on all day pays for it in heat and fan noise, for a picture that almost never changes.
 - A waste collection card using a city's open data: the API catalog was unreachable, code removed. Only worth retrying if unauthenticated access comes back.
 - Daily dev tips under the clock: removed, they took a line on the Overview for content tied to one person's stack.

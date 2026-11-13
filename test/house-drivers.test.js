@@ -123,6 +123,139 @@ test('daikin: a refused command or a silent unit is a DeviceError naming the dev
   await assert.rejects(silent.driver.state(UNIT), (e) => e instanceof DeviceError && e.message === 'Air conditioner: timeout');
 });
 
+// Made-up answers in the layout real units give: the time of an entry is the minute of the day.
+const SCHEDULE_INFO = 'ret=OK,format=v1,f_detail=total#18;_en#1;_pow#1;_mode#1;_temp#4;_time#4;_vol#1;_dir#1;_humi#3;_spmd#2,scdl_num=3,scdl_per_day=6,en_scdltimer=1,active_no=2,scdl1_name=,scdl2_name=%57%65%65%6b%20%c3%a9,scdl3_name=';
+const SCHEDULE_BODY = 'ret=OK,format=v1,target=2,en_scdltimer=1,moc=3,mo1=11322.51065A------,mo2=11420.50390B------,mo3=10-----0495-------,tuc=0,wec=1,we1=112----1230-------,thc=0,frc=0,sac=1,sa1=01424.005555205001,suc=0';
+const OFF = { mode: null, setpoint: null, fan: null };
+
+// A unit that keeps the program it is sent, as a real one does. `deaf` answers OK and keeps nothing.
+function programUnit({ body = SCHEDULE_BODY, info = SCHEDULE_INFO, deaf = false } = {}) {
+  const store = { body, info }, calls = [];
+  const get = async (ip, path) => {
+    calls.push(path);
+    const [route, query = ''] = path.split('?');
+    if (route === '/aircon/get_scdltimer_info') return store.info;
+    if (route === '/aircon/get_scdltimer_body') return store.body;
+    if (route === '/aircon/set_scdltimer_body') { if (!deaf) store.body = 'ret=OK,' + query.split('&').join(',').replace(/(target=\d+)/, '$1,en_scdltimer=1'); return 'ret=OK'; }
+    if (route === '/aircon/set_scdltimer_info') { if (!deaf) store.info = store.info.replace(/en_scdltimer=\d/, query.match(/en_scdltimer=\d/)[0]); return 'ret=OK'; }
+    return { '/aircon/get_model_info': MODEL, '/aircon/get_control_info': CONTROL, '/aircon/get_onofftimer': 'ret=OK,enable=0' }[route] ?? 'ret=PARAM NG';
+  };
+  return { calls, store, driver: daikin.create({ get, now: () => new Date(2026, 10, 13, 17, 0).getTime() }) };
+}
+const bodySent = (calls) => Object.fromEntries(calls.filter((c) => c.startsWith('/aircon/set_scdltimer_body?')).pop().split('?')[1].split('&').map((kv) => kv.split('=')));
+
+test('daikin: the weekly program is read from the layout the unit announces', async () => {
+  const unit = programUnit();
+  const { schedule } = await unit.driver.state(UNIT);
+  assert.deepEqual({ enabled: schedule.enabled, program: schedule.program, name: schedule.name, perDay: schedule.perDay }, { enabled: true, program: 2, name: 'Week é', perDay: 6 });
+  assert.ok(unit.calls.includes('/aircon/get_scdltimer_body?target=2'), 'the active program is the one read');
+  // sorted by time, whatever the order in the unit. 390 is 06:30, 495 08:15, 1065 17:45
+  assert.deepEqual(schedule.days.mon, [
+    { time: '06:30', enabled: true, on: true, mode: 'heat', setpoint: 20.5, fan: 'quiet' },
+    { time: '08:15', enabled: true, on: false, ...OFF },
+    { time: '17:45', enabled: true, on: true, mode: 'cool', setpoint: 22.5, fan: 'auto' },
+  ]);
+  assert.deepEqual(schedule.days.wed, [{ time: '20:30', enabled: true, on: true, mode: 'dry', setpoint: null, fan: null }], 'dry has no target and no fan');
+  assert.deepEqual(schedule.days.sat, [{ time: '09:15', enabled: false, on: true, mode: 'heat', setpoint: 24, fan: '3' }], 'an entry switched off in the app is kept, marked');
+  assert.deepEqual([schedule.days.tue, schedule.days.sun], [[], []]);
+  assert.deepEqual(Object.keys(schedule.days), ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+});
+
+test('daikin: a program entry the driver cannot read gives nulls, not a guess', async () => {
+  const info = daikin.parse(SCHEDULE_INFO), body = daikin.parse('ret=OK,moc=1,mo1=10X--.-2575Z------,tuc=0');
+  const [e] = daikin.program(info, body).days.mon;
+  assert.deepEqual(e, { time: null, enabled: true, on: false, mode: null, setpoint: null, fan: null }, 'minute 2575 is not in a day');
+  // another layout is followed, not assumed
+  const other = daikin.program({ ...info, f_detail: 'total#10;_time#4;_en#1;_pow#1;_temp#4' }, daikin.parse('ret=OK,frc=1,fr1=04201121.0'));
+  assert.deepEqual(other.days.fri[0], { time: '07:00', enabled: true, on: true, mode: null, setpoint: 21, fan: null });
+});
+
+test('daikin: without a layout the program is only known as active or not, and cannot be set', async () => {
+  const unit = fakeUnit();
+  assert.deepEqual((await unit.driver.state(UNIT)).schedule, { enabled: true });
+  assert.equal(unit.calls.some((c) => c.startsWith('/aircon/get_scdltimer_body')), false);
+  assert.equal('schedule' in await unit.driver.capabilities(UNIT), false);
+});
+
+test('daikin: a unit that describes its program can have it set, in the modes seen on real units', async () => {
+  assert.deepEqual((await programUnit().driver.capabilities(UNIT)).schedule, { type: 'program', perDay: 6, modes: ['heat', 'cool', 'dry'] });
+});
+
+test('daikin: sending back the program that was read leaves every entry as it came', async () => {
+  const unit = programUnit();
+  const { schedule } = await unit.driver.state(UNIT);
+  await unit.driver.set(UNIT, { schedule: { days: schedule.days } });
+  const before = daikin.parse(SCHEDULE_BODY), sent = bodySent(unit.calls);
+  // mon1 and mon2 were stored out of order: only their rank changes
+  assert.deepEqual([sent.mo1, sent.mo2, sent.mo3], [before.mo2, before.mo3, before.mo1]);
+  assert.equal(sent.sa1, before.sa1, 'vane, humidity and special mode of an entry are not lost');
+  assert.deepEqual([sent.format, sent.target, sent.moc, sent.tuc, sent.wec, sent.we1, sent.sac, sent.suc], ['v1', '2', '3', '0', '1', before.we1, '1', '0']);
+  assert.equal(unit.calls.some((c) => c.startsWith('/aircon/set_scdltimer_info')), false, 'the active flag is not touched when only the entries are sent');
+});
+
+test('daikin: new entries are written the way the unit writes them', async () => {
+  const unit = programUnit();
+  await unit.driver.set(UNIT, { schedule: { days: {
+    mon: [{ time: '22:00', on: false }, { time: '07:15', on: true, mode: 'heat', setpoint: 21, fan: 'auto' }],
+    tue: [{ time: '14:45', on: true, mode: 'cool', setpoint: 26.3, fan: '3' }, { time: '20:30', on: true, mode: 'dry', setpoint: 30, fan: '5' }],
+    sat: [{ time: '09:15', on: true, mode: 'heat', setpoint: 19, fan: '3', enabled: true }],
+  } } });
+  const sent = bodySent(unit.calls);
+  assert.deepEqual([sent.moc, sent.mo1, sent.mo2], ['2', '11421.00435A------', '10-----1320-------'], 'sorted by time, off is dashes');
+  assert.deepEqual([sent.tuc, sent.tu1, sent.tu2], ['2', '11326.508855------', '112----1230-------'], 'the target is rounded to the half degree, dry carries none');
+  assert.equal(sent.sa1, '11419.005555205001', 'an entry changed in place keeps the fields nobody sets here');
+  assert.deepEqual([sent.wec, sent.we1], ['0', undefined], 'a day left out is emptied');
+  // and it reads back as it was asked
+  const { schedule } = await unit.driver.state(UNIT);
+  assert.deepEqual(schedule.days.mon.map((e) => [e.time, e.on]), [['07:15', true], ['22:00', false]]);
+  assert.equal(unit.calls.filter((c) => c.startsWith('/aircon/get_scdltimer_body')).length >= 3, true, 'read before, read after, and read again for the state');
+});
+
+test('daikin: a program the unit could not run as asked is refused before anything is sent', async () => {
+  const unit = programUnit();
+  const refuse = (days, why) => assert.rejects(unit.driver.set(UNIT, { schedule: { days } }), (e) => e instanceof RangeError && why.test(e.message), String(why));
+  await refuse({ mon: Array.from({ length: 7 }, (_, i) => ({ time: `0${i}:00`, on: false })) }, /6 entries a day/);
+  await refuse({ mon: [{ time: '25:00', on: false }] }, /HH:MM/);
+  await refuse({ mon: [{ time: '07:00', on: true, mode: 'fan' }] }, /"mode" must be one of heat, cool, dry/);
+  await refuse({ mon: [{ time: '07:00', on: true, mode: 'heat', setpoint: 'warm' }] }, /"setpoint"/);
+  await refuse({ mon: [{ time: '07:00', on: true, mode: 'heat', setpoint: 20, fan: 'turbo' }] }, /"fan"/);
+  await refuse({ mon: [{ time: '07:00', on: false }, { time: '07:00', on: true, mode: 'dry' }] }, /two entries at 07:00/);
+  await refuse({ mon: 'every morning' }, /must be a list/);
+  await assert.rejects(unit.driver.set(UNIT, { schedule: { enabled: 'yes' } }), RangeError);
+  assert.equal(unit.calls.some((c) => c.startsWith('/aircon/set_')), false);
+  // a target out of range is brought back into it, like a slider
+  await unit.driver.set(UNIT, { schedule: { days: { mon: [{ time: '07:00', on: true, mode: 'heat', setpoint: 45 }] } } });
+  assert.equal(bodySent(unit.calls).mo1, '11432.00420A------');
+});
+
+test('daikin: an entry in a mode that cannot be asked for still goes back untouched', async () => {
+  const body = SCHEDULE_BODY.replace('thc=0', 'thc=1,th1=11023.00600A------');   // auto, set in the app
+  const unit = programUnit({ body });
+  const { schedule } = await unit.driver.state(UNIT);
+  assert.equal(schedule.days.thu[0].mode, 'auto');
+  schedule.days.fri = [{ time: '07:00', on: false }];
+  await unit.driver.set(UNIT, { schedule: { days: schedule.days } });
+  assert.equal(bodySent(unit.calls).th1, '11023.00600A------');
+  // changed, it is a new entry in a mode nobody has seen written: refused
+  schedule.days.thu[0].setpoint = 24;
+  await assert.rejects(unit.driver.set(UNIT, { schedule: { days: schedule.days } }), RangeError);
+});
+
+test('daikin: a unit that answers OK but did not keep the program is an error', async () => {
+  const unit = programUnit({ deaf: true });
+  await assert.rejects(unit.driver.set(UNIT, { schedule: { days: { mon: [{ time: '07:00', on: false }] } } }), (e) => e instanceof DeviceError && /did not keep the program/.test(e.message));
+  await assert.rejects(unit.driver.set(UNIT, { schedule: { enabled: false } }), (e) => e instanceof DeviceError && /did not stop its program/.test(e.message));
+});
+
+test('daikin: the program is started and stopped without touching its entries or its names', async () => {
+  const unit = programUnit();
+  await unit.driver.set(UNIT, { schedule: { enabled: false } });
+  const info = unit.calls.find((c) => c.startsWith('/aircon/set_scdltimer_info?')).split('?')[1];
+  assert.equal(info, 'format=v1&en_scdltimer=0&active_no=2&scdl1_name=&scdl2_name=%57%65%65%6b%20%c3%a9&scdl3_name=', 'the names go back as the unit gave them');
+  assert.equal(unit.calls.some((c) => c.startsWith('/aircon/set_scdltimer_body')), false);
+  assert.equal((await unit.driver.state(UNIT)).schedule.enabled, false);
+});
+
 test('daikin: counters and timers are read once per 10 minutes, the state every time', async () => {
   const unit = fakeUnit();
   await unit.driver.state(UNIT);

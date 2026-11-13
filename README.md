@@ -15,8 +15,8 @@ The interface has five tabs. The Overview is meant to be read at a glance and fi
 - **Overview**: time and the sun's path over the day with its golden and blue hours, today's weather and a 5 day forecast, electricity (machine consumption and cost), CPU/GPU/RAM with their last hour and a 30 day chart, storage, device batteries. Air quality gets its card only when it is worth a look. What is playing shows up with a play/pause button, and pills appear only when something needs you: a restart, updates waiting, a service down.
 - **Weather**: all your cities side by side, 48 hours hour by hour, pressure and its tendency, 7 days, animated rain radar, pollen, snow depth at a few spots.
 - **Machine**: hardware sheet (drivers, BIOS, updates), what changed recently, crash history with a diagnosis, top processes, connection quality, the services you watch (router, NAS, websites), a yearly summary.
-- **Tools**: your favorite links grouped by topic, and the latest versions of software you follow on GitHub.
-- **House**: your home room by room, with Govee lights, Daikin air conditioners and Cozytouch heaters, scenes in one tap, and fuel prices around home.
+- **Tools**: your favorite links grouped by topic, the latest versions of software you follow on GitHub, and fuel prices around home.
+- **House**: your home room by room, with Govee lights, Daikin air conditioners and Cozytouch heaters, scenes in one tap, and a 3D plan of the home showing what is on, all on one screen.
 
 Optionally, a short briefing written by Claude sits next to the clock and sums up what deserves your attention, in the morning, at midday and in the late afternoon.
 
@@ -92,7 +92,7 @@ The other colors (warnings, temperature scale) are in `public/style.css`, alert 
 The House tab talks to a small service of its own (`house/`), started inside the agent. It drives the devices directly, so the manufacturers' apps are no longer needed day to day:
 
 - **Govee lights** over the local network, without key or cloud. Switch on **LAN Control** once per lamp in Govee Home (the lamp, then its settings).
-- **Daikin** air conditioners through their Wi-Fi adapter, also local: mode, fan, vanes, target, powerful and eco modes, energy used. Reserve their IPs on your router.
+- **Daikin** air conditioners through their Wi-Fi adapter, also local: mode, fan, vanes, target, powerful and eco modes, energy used, and the weekly program stored in the unit, which keeps running with the PC off. Reserve their IPs on your router.
 - **Atlantic, Thermor and Sauter** heaters through the Cozytouch cloud, once `house.cozytouch` holds the account's email and password.
 
 Describe your home under `house` in `config.json`, by room:
@@ -111,6 +111,29 @@ Describe your home under `house` in `config.json`, by room:
 ```
 
 Open `http://localhost:5252/api/v1/discovery` to get the `device` id of each lamp that answers on your network. Ambiances are your own light presets, they replace Govee's scenes. Scenes are buttons at the top of the tab, and each one also has a plain URL for a Stream Deck or a shortcut. Once everything answers here, the Govee Home and Daikin apps can be uninstalled: reinstall Govee Home only to add a new lamp.
+
+#### Plan
+
+<p align="center">
+  <img src="docs/plan.png" alt="The House tab on the demo flat, upright by day: the plan above the tiles" height="420">
+  <img src="docs/plan-landscape.png" alt="The same tab lying down, at night: only the rooms with a lamp on are lit" height="420">
+</p>
+
+With a floor plan, the tab opens on a model of the home: a lit lamp warms the floor of its room with its color, air conditioners show their mode and their target, shutters hang at their height, and a room with a sensor is tinted when it is cold or warm. The daylight follows the real sun when the plan says where north is. Press a room to zoom on it, a device to open its panel. Under 720 px wide, or without WebGL, the same plan is drawn flat.
+
+The plan is a JSON file of your own (rooms, walls, openings, and one anchor per device), described in [house/API.md](house/API.md#plan). **Keep it outside this folder**: it is the layout of your home, and it must not end up in a fork or a pull request. Point to it from `config.json`:
+
+```json
+"house": { "planPath": "C:\\Users\\me\\Documents\\home\\plan.json" }
+```
+
+To try it without drawing yours, copy the `house` block of `house/demo/config.json` into `config.json` with `"planPath": "house/demo/plan.json"`: a made-up flat with made-up devices.
+
+#### Weekly program of an air conditioner
+
+<p align="center"><img src="docs/plan-program.png" alt="The weekly program of an air conditioner, edited from its detail panel" width="320"></p>
+
+The detail panel of a Daikin unit shows the weekly program stored in the unit and edits it: one block per entry (a time, on in a mode with its target, or off), up to six a day, a day copied to others in two taps. The program is saved into the unit itself, so it runs whether the PC is on or not.
 
 The service can also run alone on a machine that stays on (`node house/server.js`), with a token. Its API, the full configuration and how to add a driver are in [house/API.md](house/API.md).
 
@@ -146,8 +169,8 @@ start-dashboard.bat ──▶ agent.js (http://localhost:5252)
 |---|---|
 | `agent.js` | Entry point: config, routes, scheduled jobs |
 | `lib/` | The agent's logic, one module per topic (sensors, energy, weather, crash…) |
-| `house/` | The house service: its API, one driver per brand. Runs inside the agent or alone |
-| `public/` | The page: `index.html`, `style.css`, and ES modules in `js/` (no build) |
+| `house/` | The house service: its API, one driver per brand, the floor plan. Runs inside the agent or alone |
+| `public/` | The page: `index.html`, `style.css`, and ES modules in `js/` (no build). `vendor/three/` is three.js, copied in for the plan |
 | `test/` | Tests, run with `node --test` |
 
 The page calls Open-Meteo directly for the weather. Everything else goes through the agent, on the same origin.

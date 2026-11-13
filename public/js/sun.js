@@ -3,8 +3,9 @@
 
 const RAD = Math.PI / 180;
 
-// Elevation of the sun above the horizon, in degrees, at a given instant and place.
-export function solarElevation(ms, lat, lon) {
+// Where the sun is at a given instant and place, in degrees: `elevation` above the
+// horizon, `azimuth` clockwise from north (90 east, 180 south).
+export function solarPosition(ms, lat, lon) {
   const d = (ms - Date.UTC(2000, 0, 1, 12)) / 86400000;      // days since J2000.0
   const g = (357.529 + 0.98560028 * d) * RAD;                 // mean anomaly
   const q = 280.459 + 0.98564736 * d;                         // mean longitude
@@ -15,8 +16,10 @@ export function solarElevation(ms, lat, lon) {
   const gmst = 18.697374558 + 24.06570982441908 * d;          // hours
   const ha = (gmst * 15 + lon) * RAD - ra;                    // hour angle
   const el = Math.asin(Math.sin(lat * RAD) * Math.sin(dec) + Math.cos(lat * RAD) * Math.cos(dec) * Math.cos(ha));
-  return el / RAD;
+  const az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(lat * RAD) - Math.tan(dec) * Math.cos(lat * RAD)) / RAD + 180;
+  return { elevation: el / RAD, azimuth: ((az % 360) + 360) % 360 };
 }
+export const solarElevation = (ms, lat, lon) => solarPosition(ms, lat, lon).elevation;
 
 // Elevation every `stepMin` minutes over one local day, starting at local midnight
 // (given as a UTC timestamp).

@@ -1,0 +1,48 @@
+{
+  "house": {
+    "host": "127.0.0.1",
+    "port": 5253,
+    "token": "",
+    "planPath": "plan.json",
+    "rooms": [
+      { "id": "living", "name": "Living room", "devices": [
+        { "id": "living-lamp", "name": "Ceiling light", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 60, "colorRgb": null, "colorTempK": 2700 } },
+        { "id": "living-floor-lamp", "name": "Floor lamp", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 40, "colorRgb": 16742972, "colorTempK": null } },
+        { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": true, "mode": "heat", "setpoint": 21, "fan": "auto", "probeTemp": 23.5,
+          "schedule": { "enabled": true, "program": 1, "name": "Winter", "perDay": 6, "days": {
+            "mon": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "tue": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "wed": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "thu": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "fri": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "sat": [{ "time": "09:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "23:30", "enabled": false, "on": false, "mode": null, "setpoint": null, "fan": null }],
+            "sun": [{ "time": "09:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "23:30", "enabled": false, "on": false, "mode": null, "setpoint": null, "fan": null }] } } } },
+        { "id": "living-thermometer", "name": "Thermometer", "type": "sensor", "driver": "demo", "state": { "temperature": 20.4 } },
+        { "id": "living-shutter", "name": "Shutter", "type": "cover", "driver": "demo", "state": { "position": 70 } }
+      ] },
+      { "id": "bedroom", "name": "Bedroom", "devices": [
+        { "id": "bedroom-lamp", "name": "Bedside lamp", "type": "light", "driver": "demo", "state": { "on": false, "brightness": 30, "colorRgb": null, "colorTempK": 2200 } },
+        { "id": "bedroom-shutter", "name": "Shutter", "type": "cover", "driver": "demo", "state": { "position": 0 } },
+        { "id": "bedroom-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": false, "mode": "cool", "setpoint": 25, "fan": "auto", "probeTemp": 22 } }
+      ] },
+      { "id": "office", "name": "Office", "devices": [
+        { "id": "office-lamp", "name": "Desk lamp", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 80, "colorRgb": 9067775, "colorTempK": null } },
+        { "id": "office-heater", "name": "Heater", "type": "heater", "driver": "demo", "state": { "on": true, "mode": "manual", "setpoint": 19, "temperature": 18.2 } }
+      ] },
+      { "id": "bathroom", "name": "Bathroom", "devices": [
+        { "id": "bathroom-towel-rail", "name": "Towel rail", "type": "heater", "driver": "demo", "state": { "on": false, "mode": "off", "setpoint": 21, "temperature": 19 } }
+      ] },
+      { "id": "kitchen", "name": "Kitchen", "devices": [
+        { "id": "kitchen-lamp", "name": "Ceiling light", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 90, "colorRgb": null, "colorTempK": 4000 } }
+      ] }
+    ],
+    "ambiances": [
+      { "id": "warm", "name": "Warm", "brightness": 45, "colorTempK": 2700 },
+      { "id": "reading", "name": "Reading", "brightness": 90, "colorTempK": 4000 }
+    ],
+    "scenes": [
+      { "id": "leave", "name": "Leaving", "actions": [{ "type": "light", "set": { "on": false } }, { "type": "climate", "set": { "on": false } }] },
+      { "id": "evening", "name": "Evening", "actions": [{ "type": "light", "set": { "ambiance": "warm" } }] }
+    ]
+  }
+}

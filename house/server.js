@@ -3,7 +3,7 @@
  *   mount(cfg)               gives Vigie's agent a handler for /api/v1/*, same process
  * Config: the "house" section of config.json (or the file named by HOUSE_CONFIG).
  * Secrets may come from the environment instead: HOUSE_TOKEN, COZYTOUCH_USERNAME,
- * COZYTOUCH_PASSWORD, GOVEE_API_KEY. */
+ * COZYTOUCH_PASSWORD, GOVEE_API_KEY, HOUSE_PLAN (the file of the floor plan). */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -12,12 +12,15 @@ const daikin = require('./drivers/daikin');
 const goveeLan = require('./drivers/govee-lan');
 const goveeCloud = require('./drivers/govee-cloud');
 const cozytouch = require('./drivers/cozytouch');
+const demo = require('./drivers/demo');
+const plan = require('./plan');
 
 const PREFIX = '/api/v1';
 const DEFAULT_PORT = 5253;
 
 function withEnv(cfg, env = process.env) {
   const out = { ...cfg, token: env.HOUSE_TOKEN || cfg.token || '' };
+  if (env.HOUSE_PLAN) out.planPath = env.HOUSE_PLAN;
   if (cfg.govee || env.GOVEE_API_KEY) out.govee = { ...cfg.govee, apiKey: env.GOVEE_API_KEY || (cfg.govee || {}).apiKey || '' };
   if (cfg.cozytouch || env.COZYTOUCH_USERNAME) {
     out.cozytouch = { ...cfg.cozytouch, username: env.COZYTOUCH_USERNAME || (cfg.cozytouch || {}).username, password: env.COZYTOUCH_PASSWORD || (cfg.cozytouch || {}).password };
@@ -31,6 +34,7 @@ function buildDrivers(cfg) {
   const drivers = {};
   if (used.has('daikin')) drivers.daikin = daikin.create();
   if (used.has('govee-lan')) drivers['govee-lan'] = goveeLan.create();
+  if (used.has('demo')) drivers.demo = demo.create();
   const g = cfg.govee || {};
   if (g.cloudFallback && g.apiKey) drivers['govee-cloud'] = goveeCloud.create({ apiKey: g.apiKey });
   const c = cfg.cozytouch;
@@ -55,10 +59,12 @@ function send(res, status, body) {
 }
 
 /* `open` says the service only listens on the machine itself: local callers then need
- * no token. Returns an async (req, res) for every URL under /api/v1. */
-function handler(rawCfg, { open, drivers } = {}) {
+ * no token. `baseDir` is where a relative house.planPath starts from: the folder of the
+ * config file. Returns an async (req, res) for every URL under /api/v1. */
+function handler(rawCfg, { open, drivers, baseDir = path.join(__dirname, '..') } = {}) {
   const cfg = withEnv(rawCfg || {});
-  const service = createService(cfg, drivers || buildDrivers(cfg));
+  const planFile = cfg.planPath ? path.resolve(baseDir, cfg.planPath) : null;
+  const service = createService(cfg, drivers || buildDrivers(cfg), { readPlan: planFile ? (ids) => plan.load(planFile, ids) : null });
   return async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const denied = authorize({ token: cfg.token, open }, { authorization: req.headers.authorization, origin: req.headers.origin });
@@ -73,12 +79,12 @@ function handler(rawCfg, { open, drivers } = {}) {
 // Inside Vigie's agent, which listens on 127.0.0.1 only.
 const mount = (cfg) => handler(cfg, { open: true });
 
-function start(cfg, log = console.log) {
+function start(cfg, log = console.log, baseDir) {
   const host = cfg.host || '127.0.0.1', port = cfg.port || DEFAULT_PORT;
   const open = isLoopback(host);
   // Reachable from the network without a token: anyone on the Wi-Fi could switch the heating.
   if (!open && !withEnv(cfg).token) throw new Error(`house: a token is required to listen on ${host} (house.token or HOUSE_TOKEN)`);
-  const handle = handler(cfg, { open });
+  const handle = handler(cfg, { open, baseDir });
   const server = http.createServer(async (req, res) => {
     if (!req.url.startsWith(PREFIX)) return send(res, 404, { error: 'not found' });
     try {
@@ -107,7 +113,7 @@ if (require.main === module) {
     process.exit(1);
   }
   try {
-    start(cfg.house);
+    start(cfg.house, console.log, path.dirname(path.resolve(file)));
   } catch (e) {
     console.error(e.message);
     process.exit(1);

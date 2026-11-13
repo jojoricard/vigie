@@ -46,3 +46,17 @@ test('golden and blue hours frame sunrise and sunset, in the right order', async
   for (const g of [goldAm, goldPm]) assert.ok(g.to - g.from >= 40 && g.to - g.from <= 100, `golden hour of ${g.to - g.from} min`);
   for (const b of [blueAm, bluePm]) assert.ok(b.to - b.from >= 5 && b.to - b.from <= 30, `blue hour of ${b.to - b.from} min`);
 });
+
+test('the sun rises in the east, is due south at noon and sets in the west', async () => {
+  const { solarPosition, solarElevation } = await load();
+  const noon = solarPosition(Date.UTC(2026, 5, 21, 11, 41), LAT, LON);
+  near(noon.azimuth, 180, 2, 'azimuth at solar noon');
+  assert.equal(noon.elevation, solarElevation(Date.UTC(2026, 5, 21, 11, 41), LAT, LON));
+  const morning = solarPosition(Date.UTC(2026, 5, 21, 5), LAT, LON), evening = solarPosition(Date.UTC(2026, 5, 21, 18), LAT, LON);
+  assert.ok(morning.azimuth > 45 && morning.azimuth < 100, `east in the morning, got ${morning.azimuth.toFixed(1)}`);
+  assert.ok(evening.azimuth > 260 && evening.azimuth < 315, `west in the evening, got ${evening.azimuth.toFixed(1)}`);
+  // at an equinox the sun rises due east
+  let rise = Date.UTC(2026, 2, 20, 4);
+  while (solarElevation(rise, LAT, LON) < 0) rise += 60000;
+  near(solarPosition(rise, LAT, LON).azimuth, 90, 2, 'azimuth at the equinox sunrise');
+});

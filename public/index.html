@@ -184,17 +184,24 @@
   <!-- ================= TOOLS ================= -->
   <div class="tabPane" id="tabTools" hidden>
     <div id="toolsList" class="err" data-i18n="loading"></div>
-  </div>
-
-  <!-- ================= HOUSE ================= -->
-  <div class="tabPane" id="tabHouse" hidden>
-    <!-- Scenes as buttons, then one card per room, drawn from the house service. -->
-    <div class="sceneBar" id="sceneBar" hidden></div>
-    <div id="roomList"></div>
     <section class="card" id="fuelCard" hidden>
       <div class="cardHead"><h2 data-i18n="card.fuel"></h2><div class="meta" id="fuelMeta"></div></div>
       <div class="fuelGrid" id="fuelList"></div>
     </section>
+  </div>
+
+  <!-- ================= HOUSE ================= -->
+  <div class="tabPane" id="tabHouse" hidden>
+    <!-- The plan of the home when the house service has one, then the scenes as buttons
+         and one tile per device, all rooms in one grid. Everything is drawn from the
+         service, and the whole fits the screen (fitHouse in house.js). -->
+    <section class="card planCard" id="planCard" hidden>
+      <div class="planBar"><div class="chips planRooms" id="planRooms"></div><div class="segmented planViews" id="planViews"></div></div>
+      <div class="planStage" id="planStage"></div>
+      <p class="planNote dim" id="planNote" hidden></p>
+    </section>
+    <div class="sceneBar" id="sceneBar" hidden></div>
+    <div class="tiles" id="tileGrid"></div>
     <section class="card" id="houseEmpty">
       <h2 data-i18n="card.houseEmpty"></h2>
       <p class="note" data-i18n="house.empty"></p>

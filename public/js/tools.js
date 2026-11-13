@@ -1,8 +1,9 @@
 /* Tools tab: link groups from config.json and the latest release of tracked repos.
    Links open in the default browser (main screen) through /open, which only allows
-   URLs declared in config.json. */
-import { $, esc, load, DAY_MS } from "./core.js";
-import { t, relTime } from "./i18n.js";
+   URLs declared in config.json. Fuel prices sit below: one more thing looked up
+   before going out, and the House tab has no room for a card that is not the home. */
+import { $, state, esc, load, DAY_MS } from "./core.js";
+import { t, dec, relTime } from "./i18n.js";
 import { icon, ICON_NAMES } from "./icons.js";
 
 function releaseRows(g, rel) {
@@ -42,4 +43,21 @@ export async function refreshTools() {
   document.querySelectorAll("#toolsList .toolLink, #toolsList .relRow").forEach((el) => el.onclick = () => {
     if (el.dataset.url) load("/open?url=" + el.dataset.url, { method: "POST" });
   });
+}
+
+/* ================= Fuel prices (France) =================
+   The cheapest stations around the home city (the first one), per fuel. */
+export async function refreshFuel() {
+  const l = await load("/fuel");
+  state.fuel = l;
+  $("fuelCard").hidden = !l || !l.length;
+  if (!l || !l.length) return;
+  $("fuelMeta").textContent = state.cities[0] ? state.cities[0].short : "";
+  $("fuelList").innerHTML = l.map((f) => `<div class="fuelCol">
+      <div class="fuelName">${icon("pump")}${t("fuel." + f.type)}</div>
+      ${f.stations.length ? f.stations.map((s, i) => `<div class="fuelRow${i ? "" : " best"}">
+        <span class="p num">${dec(s.price, 3)} €</span>
+        <span class="a">${esc(s.address)}, ${esc(s.city)}<span class="dim">${t("fuel.km", dec(s.distance / 1000))}, ${relTime(new Date(s.updated).toISOString())}</span></span>
+      </div>`).join("") : `<div class="err">${t("fuel.none")}</div>`}
+    </div>`).join("");
 }

@@ -5,6 +5,7 @@
  * all in the service's vocabulary: adding a brand means adding a driver. */
 const crypto = require('crypto');
 const { DeviceError, clamp } = require('./util');
+const { PlanError } = require('./plan');
 
 const VERSION = 1;
 const STATE_TTL_MS = 15000;      // several clients polling together cost one read per device
@@ -31,7 +32,8 @@ function authorize({ token, open }, { authorization, origin }) {
   return 0;
 }
 
-function createService(cfg = {}, drivers = {}) {
+/* `readPlan(deviceIds)` gives the floor plan, or is missing when none is configured. */
+function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
   const rooms = cfg.rooms || [];
   const devices = new Map();
   for (const room of rooms) for (const d of room.devices || []) devices.set(d.id, { ...d, room: room.id });
@@ -157,6 +159,12 @@ function createService(cfg = {}, drivers = {}) {
         if (path === '/scenes') return [200, sceneList()];
         if (path === '/ambiances') return [200, ambiances];
         if (path === '/discovery') return [200, await discovery()];
+        // The plan of the home is private: it exists nowhere else than behind this route.
+        if (path === '/plan') {
+          if (!readPlan) return [404, { error: 'no plan configured' }];
+          const { plan, warnings } = readPlan([...devices.keys()]);
+          return [200, { ...plan, warnings }];
+        }
         if (resource === 'devices' && id && !sub) {
           return devices.has(id) ? [200, await view(devices.get(id))] : [404, { error: 'unknown device' }];
         }
@@ -183,6 +191,7 @@ function createService(cfg = {}, drivers = {}) {
     } catch (e) {
       if (e instanceof RangeError) return [400, { error: e.message }];
       if (e instanceof DeviceError) return [502, { error: e.message }];
+      if (e instanceof PlanError) return [500, { error: e.message, details: e.details }];
       throw e;
     }
   }

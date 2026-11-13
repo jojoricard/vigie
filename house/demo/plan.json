@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "units": "m",
+  "north": [0, -1],
+  "meta": {"name": "Demo flat", "note": "A made-up flat for the tests, the demo and the screenshots. Any likeness to a real home is a coincidence."},
+  "rooms": [
+    {"id": "living", "name": "Living room", "polygon": [[0, 4.2], [5.2, 4.2], [5.2, 8.0], [0, 8.0]], "height": 2.5, "floor": "wood"},
+    {"id": "kitchen", "name": "Kitchen", "polygon": [[5.3, 4.2], [8.6, 4.2], [8.6, 8.0], [5.3, 8.0]], "height": 2.5, "floor": "tile"},
+    {"id": "bedroom", "name": "Bedroom", "polygon": [[0, 0], [3.6, 0], [3.6, 3.0], [0, 3.0]], "height": 2.5, "floor": "wood"},
+    {"id": "bathroom", "name": "Bathroom", "polygon": [[3.7, 0], [5.7, 0], [5.7, 3.0], [3.7, 3.0]], "height": 2.5, "floor": "tile"},
+    {"id": "office", "name": "Office", "polygon": [[5.8, 0], [8.6, 0], [8.6, 3.0], [5.8, 3.0]], "height": 2.5, "floor": "wood"},
+    {"id": "hall", "name": "Hall", "kind": "circulation", "polygon": [[0, 3.1], [8.6, 3.1], [8.6, 4.1], [0, 4.1]], "height": 2.5, "floor": "tile"},
+    {"id": "balcony", "name": "Balcony", "kind": "outdoor", "polygon": [[0.6, 8.25], [4.6, 8.25], [4.6, 9.45], [0.6, 9.45]], "height": 1.0, "floor": "concrete"}
+  ],
+  "walls": [
+    {"id": "w-north", "a": [-0.125, -0.125], "b": [8.725, -0.125], "thickness": 0.25, "exterior": true},
+    {"id": "w-east", "a": [8.725, -0.125], "b": [8.725, 8.125], "thickness": 0.25, "exterior": true},
+    {"id": "w-south", "a": [-0.125, 8.125], "b": [8.725, 8.125], "thickness": 0.25, "exterior": true},
+    {"id": "w-west", "a": [-0.125, -0.125], "b": [-0.125, 8.125], "thickness": 0.25, "exterior": true},
+    {"id": "w-hall-north", "a": [0, 3.05], "b": [8.6, 3.05], "thickness": 0.10},
+    {"id": "w-hall-south", "a": [0, 4.15], "b": [8.6, 4.15], "thickness": 0.10},
+    {"id": "w-bedroom-bathroom", "a": [3.65, 0], "b": [3.65, 3.0], "thickness": 0.10},
+    {"id": "w-bathroom-office", "a": [5.75, 0], "b": [5.75, 3.0], "thickness": 0.10},
+    {"id": "w-living-kitchen", "a": [5.25, 4.2], "b": [5.25, 8.0], "thickness": 0.10}
+  ],
+  "openings": [
+    {"id": "o-entry", "type": "door", "wall": "w-west", "offset": 3.275, "width": 0.90, "height": 2.04, "sill": 0, "hinge": "start", "opensInto": "hall"},
+    {"id": "o-bedroom-door", "type": "door", "wall": "w-hall-north", "offset": 2.5, "width": 0.83, "height": 2.04, "sill": 0, "hinge": "end", "opensInto": "bedroom"},
+    {"id": "o-bathroom-door", "type": "door", "wall": "w-hall-north", "offset": 4.3, "width": 0.73, "height": 2.04, "sill": 0, "hinge": "start", "opensInto": "bathroom"},
+    {"id": "o-office-door", "type": "door", "wall": "w-hall-north", "offset": 6.0, "width": 0.83, "height": 2.04, "sill": 0, "hinge": "start", "opensInto": "office"},
+    {"id": "o-living-passage", "type": "passage", "wall": "w-hall-south", "offset": 1.8, "width": 1.60, "height": 2.10, "sill": 0},
+    {"id": "o-kitchen-door", "type": "door", "wall": "w-hall-south", "offset": 5.6, "width": 0.83, "height": 2.04, "sill": 0, "hinge": "start", "opensInto": "kitchen"},
+    {"id": "o-living-kitchen", "type": "passage", "wall": "w-living-kitchen", "offset": 2.0, "width": 1.40, "height": 2.10, "sill": 0},
+    {"id": "o-bedroom-window", "type": "window", "wall": "w-north", "offset": 1.125, "width": 1.40, "height": 1.30, "sill": 0.90},
+    {"id": "o-bathroom-window", "type": "window", "wall": "w-north", "offset": 4.525, "width": 0.60, "height": 0.80, "sill": 1.20},
+    {"id": "o-office-window", "type": "window", "wall": "w-north", "offset": 6.725, "width": 1.20, "height": 1.30, "sill": 0.90},
+    {"id": "o-living-window", "type": "french-window", "wall": "w-south", "offset": 1.525, "width": 2.40, "height": 2.15, "sill": 0},
+    {"id": "o-kitchen-window", "type": "window", "wall": "w-south", "offset": 6.425, "width": 1.40, "height": 1.20, "sill": 1.00}
+  ],
+  "furniture": [
+    {"id": "f-sofa", "room": "living", "kind": "sofa", "position": [0.5, 6.2], "size": [0.95, 2.20, 0.80]},
+    {"id": "f-coffee-table", "room": "living", "kind": "table", "position": [1.9, 6.2], "size": [0.60, 1.10, 0.40]},
+    {"id": "f-tv-unit", "room": "living", "kind": "storage", "position": [4.95, 5.2], "size": [0.45, 1.80, 0.50]},
+    {"id": "f-dining-table", "room": "living", "kind": "table", "position": [3.3, 5.3], "size": [1.50, 0.90, 0.75]},
+    {"id": "f-bed", "room": "bedroom", "kind": "bed", "position": [1.05, 1.5], "size": [2.00, 1.60, 0.50]},
+    {"id": "f-wardrobe", "room": "bedroom", "kind": "storage", "position": [3.3, 0.9], "size": [0.60, 1.80, 2.20]},
+    {"id": "f-bath", "room": "bathroom", "kind": "bath", "position": [5.35, 1.0], "size": [0.70, 1.70, 0.55]},
+    {"id": "f-vanity", "room": "bathroom", "kind": "storage", "position": [4.0, 0.3], "size": [0.60, 0.50, 0.85]},
+    {"id": "f-desk", "room": "office", "kind": "desk", "position": [7.2, 0.4], "size": [1.60, 0.70, 0.75]},
+    {"id": "f-shelf", "room": "office", "kind": "storage", "position": [8.4, 2.0], "size": [0.35, 1.20, 1.80]},
+    {"id": "f-counter-east", "room": "kitchen", "kind": "counter", "position": [8.3, 6.1], "size": [0.60, 3.60, 0.90]},
+    {"id": "f-counter-north", "room": "kitchen", "kind": "counter", "position": [7.1, 4.5], "size": [1.80, 0.60, 0.90]},
+    {"id": "f-kitchen-table", "room": "kitchen", "kind": "table", "position": [6.3, 6.6], "size": [0.80, 0.80, 0.75]}
+  ],
+  "anchors": [
+    {"deviceId": "living-lamp", "position": [2.6, 6.1, 2.30], "mount": "ceiling"},
+    {"deviceId": "living-floor-lamp", "position": [0.4, 4.6, 1.50], "mount": "floor"},
+    {"deviceId": "living-ac", "position": [2.6, 4.3, 2.25], "mount": "wall"},
+    {"deviceId": "living-thermometer", "position": [4.9, 7.6, 1.40], "mount": "wall"},
+    {"deviceId": "living-shutter", "openingId": "o-living-window"},
+    {"deviceId": "bedroom-lamp", "position": [0.3, 0.45, 0.70], "mount": "furniture"},
+    {"deviceId": "bedroom-shutter", "openingId": "o-bedroom-window"},
+    {"deviceId": "bedroom-ac", "position": [3.5, 1.5, 2.25], "mount": "wall"},
+    {"deviceId": "office-lamp", "position": [7.2, 0.4, 1.10], "mount": "furniture"},
+    {"deviceId": "office-heater", "position": [5.95, 1.6, 0.40], "mount": "wall"},
+    {"deviceId": "bathroom-towel-rail", "position": [3.8, 1.8, 1.00], "mount": "wall"},
+    {"deviceId": "kitchen-lamp", "position": [6.9, 6.0, 2.30], "mount": "ceiling"}
+  ]
+}

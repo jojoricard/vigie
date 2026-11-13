@@ -1,0 +1,360 @@
+/* Floor plan of the House tab, the part that needs no screen: the geometry read from the
+   plan of the service (house/API.md), which drawing module a device gets, what the
+   camera may show, and the flat view drawn when WebGL is missing or the screen narrow.
+   No DOM and no three.js here: all of it is tested as is.
+   Plan coordinates: meters, x to the right, y down on a view from above, z up. */
+
+export const CUT_HEIGHT = 1.25;   // walls are cut at mid-height, as on an architect's model
+const DEG = Math.PI / 180;
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+/* ---------- Geometry ---------- */
+export function polygonArea(poly) {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) { const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length]; a += x0 * y1 - x1 * y0; }
+  return Math.abs(a) / 2;
+}
+
+export function polygonCentroid(poly) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length], k = x0 * y1 - x1 * y0;
+    a += k; cx += (x0 + x1) * k; cy += (y0 + y1) * k;
+  }
+  return [cx / (3 * a), cy / (3 * a)];
+}
+
+export function pointInPolygon(poly, x, y) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+const boxOf = (points) => {
+  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+};
+export const roomBounds = (room) => boxOf(room.polygon);
+// Everything drawn: the rooms and the walls around them.
+export const bounds = (plan) => boxOf([...plan.rooms.flatMap((r) => r.polygon), ...(plan.walls || []).flatMap((w) => [w.a, w.b])]);
+
+export const roomAt = (plan, x, y) => plan.rooms.find((r) => pointInPolygon(r.polygon, x, y)) || null;
+
+/* Where the name of a room sits: the point of the room furthest from its edges. The
+   centroid of a hall shaped like a T or an L falls in a neighbor, or in a wall. */
+export function labelPoint(poly) {
+  const b = boxOf(poly), steps = 14;
+  let best = polygonCentroid(poly), far = -1;
+  for (let i = 0; i <= steps; i++) for (let j = 0; j <= steps; j++) {
+    const x = b.minX + (b.maxX - b.minX) * (i + 0.5) / (steps + 1), y = b.minY + (b.maxY - b.minY) * (j + 0.5) / (steps + 1);
+    if (!pointInPolygon(poly, x, y)) continue;
+    let d = Infinity;
+    for (let k = 0; k < poly.length; k++) {
+      const [x0, y0] = poly[k], [x1, y1] = poly[(k + 1) % poly.length], len2 = (x1 - x0) ** 2 + (y1 - y0) ** 2;
+      const t = len2 ? clamp(((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / len2, 0, 1) : 0;
+      d = Math.min(d, Math.hypot(x - x0 - t * (x1 - x0), y - y0 - t * (y1 - y0)));
+    }
+    // a point just as far from the edges but nearer the middle reads better
+    const score = d - 0.02 * Math.hypot(x - (b.minX + b.maxX) / 2, y - (b.minY + b.maxY) / 2);
+    if (score > far) { far = score; best = [x, y]; }
+  }
+  return best;
+}
+
+// A wall as a frame: unit vector along it, its left normal, its length.
+export function wallFrame(wall) {
+  const dx = wall.b[0] - wall.a[0], dy = wall.b[1] - wall.a[1], length = Math.hypot(dx, dy);
+  return { ux: dx / length, uy: dy / length, nx: -dy / length, ny: dx / length, length };
+}
+
+const openingsOf = (plan, wall) => (plan.openings || []).filter((o) => o.wall === wall.id).sort((a, b) => a.offset - b.offset);
+
+/* What is left of a wall once its openings are cut out, as boxes along it:
+   { from, to } in meters from `a`, { bottom, top } in height. A window keeps the wall
+   under its sill, a door keeps nothing. Outside walls run half a thickness past their
+   ends so corners close. */
+export function wallPieces(plan, wall, cut = CUT_HEIGHT) {
+  const { length } = wallFrame(wall), extra = wall.exterior ? wall.thickness / 2 : 0;
+  const pieces = [];
+  let cursor = -extra;
+  for (const o of openingsOf(plan, wall)) {
+    if (o.offset > cursor) pieces.push({ from: cursor, to: o.offset, bottom: 0, top: cut });
+    const sill = o.sill || 0, head = sill + o.height;
+    if (sill > 0) pieces.push({ from: o.offset, to: o.offset + o.width, bottom: 0, top: Math.min(sill, cut) });
+    if (head < cut) pieces.push({ from: o.offset, to: o.offset + o.width, bottom: head, top: cut });
+    cursor = o.offset + o.width;
+  }
+  if (length + extra > cursor) pieces.push({ from: cursor, to: length + extra, bottom: 0, top: cut });
+  return pieces;
+}
+
+// Where an opening stands: its two ends and its middle on the axis of its wall.
+export function openingFrame(plan, opening) {
+  const wall = (plan.walls || []).find((w) => w.id === opening.wall);
+  if (!wall) return null;
+  const f = wallFrame(wall), at = (s) => [wall.a[0] + f.ux * s, wall.a[1] + f.uy * s];
+  const start = at(opening.offset), end = at(opening.offset + opening.width), mid = at(opening.offset + opening.width / 2);
+  return { ...f, wall, start, end, x: mid[0], y: mid[1] };
+}
+
+// The wall closest to a point, to lay a wall unit along it.
+export function nearestWall(plan, x, y) {
+  let best = null;
+  for (const wall of plan.walls || []) {
+    const f = wallFrame(wall);
+    const s = clamp((x - wall.a[0]) * f.ux + (y - wall.a[1]) * f.uy, 0, f.length);
+    const d = Math.hypot(x - (wall.a[0] + f.ux * s), y - (wall.a[1] + f.uy * s));
+    if (!best || d < best.distance) best = { ...f, wall, distance: d };
+  }
+  return best;
+}
+
+/* The open edges of a balcony or a loggia: the sides of its floor no wall runs along.
+   They get a guard rail. */
+export function openEdges(plan, room) {
+  const out = [];
+  for (let i = 0; i < room.polygon.length; i++) {
+    const p = room.polygon[i], q = room.polygon[(i + 1) % room.polygon.length];
+    const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len < 0.2) continue;
+    const walled = (plan.walls || []).some((wall) => {
+      const f = wallFrame(wall), s = (mid[0] - wall.a[0]) * f.ux + (mid[1] - wall.a[1]) * f.uy;
+      const off = Math.abs((mid[0] - wall.a[0]) * f.nx + (mid[1] - wall.a[1]) * f.ny);
+      const parallel = Math.abs(((q[0] - p[0]) * f.ux + (q[1] - p[1]) * f.uy) / len) > 0.9;
+      return parallel && s > -0.05 && s < f.length + 0.05 && off < wall.thickness / 2 + 0.2;
+    });
+    if (!walled) out.push([p, q]);
+  }
+  return out;
+}
+
+/* ---------- Devices ---------- */
+export const MODULES = ["light", "climate", "heater", "cover", "sensor"];
+
+/* The drawing module of a device: its type when the plan knows it, otherwise what its
+   capabilities say it is. A new type needs a new module, nothing else. */
+export function moduleFor(device) {
+  if (!device) return null;
+  if (MODULES.includes(device.type)) return device.type;
+  const caps = device.capabilities || {}, state = device.state || {};
+  if (caps.position) return "cover";
+  if (caps.brightness || caps.colorRgb || caps.colorTempK) return "light";
+  if (caps.setpoint) return caps.fan || (caps.mode && caps.mode.options.includes("cool")) ? "climate" : "heater";
+  if (state.temperature != null) return "sensor";
+  return null;
+}
+
+/* Where an anchor stands. On an opening it takes the middle of the opening, at the
+   height of its head. */
+export function anchorPoint(plan, anchor) {
+  if (anchor.position) return { x: anchor.position[0], y: anchor.position[1], z: anchor.position[2], opening: null };
+  const opening = (plan.openings || []).find((o) => o.id === anchor.openingId);
+  const frame = opening && openingFrame(plan, opening);
+  return frame ? { x: frame.x, y: frame.y, z: (opening.sill || 0) + opening.height, opening } : null;
+}
+
+// The anchored devices the service knows, with their module and their place.
+export function placedDevices(plan, rooms) {
+  const devices = new Map((rooms || []).flatMap((r) => r.devices).map((d) => [d.id, d]));
+  const out = [];
+  for (const anchor of plan.anchors || []) {
+    const device = devices.get(anchor.deviceId), module = moduleFor(device), point = anchorPoint(plan, anchor);
+    // a shutter needs its window: without one there is nothing to draw it on
+    if (!device || !module || !point || (module === "cover" && !point.opening)) continue;
+    out.push({ device, anchor, point, module });
+  }
+  return out;
+}
+
+/* The tint of a room from the temperature of its own sensor: neutral between 19 and
+   21 degrees, cooler below, warmer above, full strength 4 degrees away. */
+export function temperatureTint(t) {
+  if (t == null || !Number.isFinite(t)) return { tone: null, strength: 0 };
+  if (t < 19) return { tone: "cool", strength: clamp((19 - t) / 4, 0, 1) };
+  if (t > 21) return { tone: "warm", strength: clamp((t - 21) / 4, 0, 1) };
+  return { tone: null, strength: 0 };
+}
+
+// How far a shutter is down: 0 open, 1 closed. `position` is 0 (closed) to 100 (open).
+export const coverClosed = (state) => 1 - clamp(Number(state && state.position) || 0, 0, 100) / 100;
+
+/* ---------- Camera ----------
+   A view is what to look at and from where: { subject, azimuth, elevation, zoom }.
+   `subject` is "plan" or a room id. The frame is worked out from it for the shape of
+   the screen: the subject always fills the same share of the picture, whatever the
+   angle and the size of the card. azimuth turns around the vertical, elevation is 90
+   degrees from above, zoom 1 is the fitted frame. A view marked `auto` has no angle
+   of its own: it takes the one that shows the home largest on that screen. */
+export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.85, maxZoom: 4 };
+export const FILL = 0.9;          // share of the picture the home takes
+const ROOM_FILL = 0.62;           // a framed room keeps its neighbors in sight
+const ISO = { azimuth: -35 * DEG, elevation: 50 * DEG };
+// the model may be seen a little more from the front and from higher, never less
+const ISO_AZIMUTHS = [-35, -25, -15].map((d) => d * DEG), ISO_ELEVATIONS = [50, 56, 62, 68].map((d) => d * DEG);
+
+// The views offered: the whole plan as a model or from above, and one per room.
+export function presets(plan) {
+  const rooms = {};
+  for (const r of plan.rooms) rooms[r.id] = { subject: r.id, zoom: 1, auto: true, ...ISO };
+  return { iso: { subject: "plan", zoom: 1, auto: true, ...ISO }, top: { subject: "plan", zoom: 1, azimuth: 0, elevation: LIMITS.maxElevation }, rooms };
+}
+
+// The extent of a set of points on screen, for a view angle.
+function extent(points, azimuth, elevation) {
+  const { right, up } = viewAxes(azimuth, elevation);
+  let minR = Infinity, maxR = -Infinity, minU = Infinity, maxU = -Infinity;
+  for (const p of points) {
+    const r = p[0] * right[0] + p[1] * right[1] + p[2] * right[2], u = p[0] * up[0] + p[1] * up[1] + p[2] * up[2];
+    minR = Math.min(minR, r); maxR = Math.max(maxR, r); minU = Math.min(minU, u); maxU = Math.max(maxU, u);
+  }
+  return { right, up, minR, maxR, minU, maxU, width: maxR - minR, height: maxU - minU };
+}
+
+/* The angle of the model for a screen of the given aspect: of the few angles allowed,
+   the one at which the home covers most of the picture. A tall card looks from higher
+   and more from the front, a wide one keeps the usual three-quarter view, which also
+   wins when another angle is hardly better. */
+export function modelAngle(plan, aspect) {
+  const points = subjectPoints(plan, "plan");
+  const cover = (azimuth, elevation) => { const e = extent(points, azimuth, elevation), fit = Math.max(e.height, e.width / aspect); return (e.height / fit) * (e.width / aspect / fit); };
+  let best = ISO, most = cover(ISO.azimuth, ISO.elevation) * 1.04;
+  for (const azimuth of ISO_AZIMUTHS) for (const elevation of ISO_ELEVATIONS) {
+    const c = cover(azimuth, elevation);
+    if (c > most) { most = c; best = { azimuth, elevation }; }
+  }
+  return best;
+}
+
+// The camera never dives under the walls, flips over, nor backs away from the plan.
+export function clampView(view) {
+  return { ...view, elevation: clamp(view.elevation, LIMITS.minElevation, LIMITS.maxElevation), zoom: clamp(view.zoom ?? 1, LIMITS.minZoom, LIMITS.maxZoom) };
+}
+
+// Screen axes of a view, as plan vectors [x, y, z]: `right`, `up`, and `back` toward the eye.
+export function viewAxes(azimuth, elevation) {
+  const sa = Math.sin(azimuth), ca = Math.cos(azimuth), se = Math.sin(elevation), ce = Math.cos(elevation);
+  return { right: [ca, -sa, 0], up: [-se * sa, -se * ca, ce], back: [sa * ce, ca * ce, se] };
+}
+
+// What a view has to hold: the corners of the home, or of one room, floor and cut walls.
+export function subjectPoints(plan, subject) {
+  const room = plan.rooms.find((r) => r.id === subject);
+  const flat = room ? room.polygon : [...plan.rooms.flatMap((r) => r.polygon), ...(plan.walls || []).flatMap((w) => [w.a, w.b])];
+  return flat.flatMap(([x, y]) => [[x, y, 0], [x, y, CUT_HEIGHT]]);
+}
+
+/* The frame of a view on a screen of the given aspect (width / height): `center` is the
+   point looked at, `height` the meters the picture shows from bottom to top. */
+export function frameView(plan, view, aspect) {
+  const { azimuth, elevation } = view.auto ? modelAngle(plan, aspect) : view;
+  const e = extent(subjectPoints(plan, view.subject), azimuth, elevation);
+  const cr = (e.minR + e.maxR) / 2, cu = (e.minU + e.maxU) / 2;
+  const fill = plan.rooms.some((r) => r.id === view.subject) ? ROOM_FILL : FILL;
+  return {
+    center: [0, 1, 2].map((i) => cr * e.right[i] + cu * e.up[i]),
+    height: Math.max(e.height, e.width / aspect) / fill / (view.zoom || 1),
+    azimuth, elevation,
+  };
+}
+
+// Between two frames, turning the short way round. k goes from 0 to 1.
+export function mixFrame(a, b, k) {
+  const turn = ((b.azimuth - a.azimuth + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const mix = (x, y) => x + (y - x) * k;
+  return { center: a.center.map((v, i) => mix(v, b.center[i])), height: mix(a.height, b.height), azimuth: a.azimuth + turn * k, elevation: mix(a.elevation, b.elevation) };
+}
+
+/* ---------- Daylight ----------
+   Where the light of the sun comes from on the plan. `north` is the plan vector that
+   points north, `azimuth` is counted clockwise from north, as on a compass, and
+   `elevation` above the horizon, both in degrees. Returns the unit vector toward the
+   sun as [x, y, z], and how much day there is: 0 at night, 1 once the sun is up. */
+export function sunlight(north, sun) {
+  const len = Math.hypot(north[0], north[1]) || 1, n = [north[0] / len, north[1] / len];
+  const east = [-n[1], n[0]];      // y goes down on the plan: east is a quarter turn clockwise on screen
+  const a = sun.azimuth * DEG, e = sun.elevation * DEG, h = Math.cos(e);
+  return {
+    toward: [(Math.cos(a) * n[0] + Math.sin(a) * east[0]) * h, (Math.cos(a) * n[1] + Math.sin(a) * east[1]) * h, Math.sin(e)],
+    day: clamp((sun.elevation + 6) / 12, 0, 1),     // civil twilight to 6 degrees up
+  };
+}
+
+/* ---------- Flat view ---------- */
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ESC[c]);
+const n = (v) => Number(v.toFixed(3));
+
+/* The plan from above as SVG, for a screen without WebGL or too narrow for the model.
+   `placed` comes from placedDevices(). Options: `simple` drops furniture and names,
+   `room` frames one room, `temperatures` maps room ids to their sensor reading,
+   `label(device)` gives the short text of a marker and `color(device)` the color of a
+   lit lamp, which also tints the floor of its room. Colors come from the stylesheet,
+   through the classes. */
+export function planSvg(plan, placed, { simple = false, room = null, temperatures = {}, label = () => "", color = () => null } = {}) {
+  const focus = room && plan.rooms.find((r) => r.id === room);
+  const b = focus ? roomBounds(focus) : bounds(plan), pad = focus ? 0.6 : 0.35;
+  const parts = [];
+  // a room with a lamp on takes the color of the first one
+  const litBy = new Map();
+  for (const { device, point, module } of placed) {
+    const lamp = module === "light" && device.state && device.state.reachable !== false && device.state.on ? color(device) : null;
+    const home = lamp && (roomAt(plan, point.x, point.y) || plan.rooms.find((r) => r.id === device.room));
+    if (home && !litBy.has(home.id)) litBy.set(home.id, lamp);
+  }
+  for (const r of plan.rooms) {
+    const tint = temperatureTint(temperatures[r.id]), lamp = litBy.get(r.id);
+    const cls = ["pRoom", r.kind || "room", lamp ? "lit" : tint.tone || "", r.id === room ? "sel" : ""].filter(Boolean).join(" ");
+    parts.push(`<path class="${cls}" data-room="${esc(r.id)}" style="--strength:${n(tint.strength)}${lamp ? `;--lamp:${esc(lamp)}` : ""}" d="M${r.polygon.map((p) => `${n(p[0])} ${n(p[1])}`).join("L")}Z"/>`);
+  }
+  if (!simple) {
+    for (const f of plan.furniture || []) {
+      const [w, d] = f.size;
+      parts.push(`<rect class="pFurniture" x="${n(f.position[0] - w / 2)}" y="${n(f.position[1] - d / 2)}" width="${n(w)}" height="${n(d)}" rx="0.08"/>`);
+    }
+  }
+  for (const wall of plan.walls || []) {
+    const f = wallFrame(wall);
+    for (const piece of wallPieces(plan, wall)) {
+      if (piece.bottom > 0) continue;
+      const x1 = wall.a[0] + f.ux * piece.from, y1 = wall.a[1] + f.uy * piece.from, x2 = wall.a[0] + f.ux * piece.to, y2 = wall.a[1] + f.uy * piece.to;
+      // the wall under a window is drawn thinner: it reads as a sill
+      parts.push(`<line class="pWall${piece.top < CUT_HEIGHT ? " sill" : ""}" x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke-width="${n(wall.thickness * (piece.top < CUT_HEIGHT ? 0.45 : 1))}"/>`);
+    }
+  }
+  for (const o of plan.openings || []) {
+    if (o.type !== "window" && o.type !== "french-window") continue;
+    const f = openingFrame(plan, o);
+    if (f) parts.push(`<line class="pGlass" x1="${n(f.start[0])}" y1="${n(f.start[1])}" x2="${n(f.end[0])}" y2="${n(f.end[1])}"/>`);
+  }
+  if (!simple) {
+    for (const r of plan.rooms) {
+      if (r.kind === "shaft" || r.kind === "unknown") continue;
+      const [cx, y0] = labelPoint(r.polygon);
+      // the name steps aside when a device sits in the middle of the room
+      const taken = (y) => placed.some(({ point }) => Math.abs(point.x - cx) < 1 && Math.abs(point.y - y) < 0.4);
+      const cy = [y0, y0 + 0.65, y0 - 0.65].find((y) => !taken(y) && pointInPolygon(r.polygon, cx, y)) ?? y0;
+      parts.push(`<text class="pName${polygonArea(r.polygon) < 3 ? " small" : ""}" x="${n(cx)}" y="${n(cy)}">${esc(r.name)}</text>`);
+    }
+  }
+  for (const { device, point, module } of placed) {
+    const s = device.state || {}, on = module === "cover" ? coverClosed(s) < 1 : !!s.on;
+    const cls = ["pPin", module, s.reachable === false ? "gone" : on ? "on" : "off"].join(" ");
+    const lamp = module === "light" && s.on ? color(device) : null;
+    let body;
+    if (module === "cover") {
+      // the shutter is a bar on its window, thicker as it comes down
+      const f = openingFrame(plan, point.opening);
+      body = `<line class="pCover" x1="${n(f.start[0])}" y1="${n(f.start[1])}" x2="${n(f.end[0])}" y2="${n(f.end[1])}" stroke-width="${n(0.06 + 0.2 * coverClosed(s))}"/><circle class="pHit" cx="${n(point.x)}" cy="${n(point.y)}" r="0.34"/>`;
+    } else {
+      const text = label(device);
+      body = `${lamp ? `<circle class="pGlow" cx="${n(point.x)}" cy="${n(point.y)}" r="${n(0.5 + (s.brightness || 60) / 100)}"/>` : ""}<circle class="pDot" cx="${n(point.x)}" cy="${n(point.y)}" r="0.2"/>${text ? `<text class="pLabel" x="${n(point.x)}" y="${n(point.y - 0.34)}">${esc(text)}</text>` : ""}`;
+    }
+    const mode = module === "climate" && on && s.mode ? ` data-mode="${esc(s.mode)}"` : "";
+    parts.push(`<g class="${cls}" data-device="${esc(device.id)}"${mode} role="button" tabindex="0" aria-label="${esc(device.name)}"${lamp ? ` style="--lamp:${esc(lamp)}"` : ""}>${body}</g>`);
+  }
+  const box = [b.minX - pad, b.minY - pad, b.maxX - b.minX + 2 * pad, b.maxY - b.minY + 2 * pad].map(n).join(" ");
+  return `<svg class="planFlat" viewBox="${box}" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
+}

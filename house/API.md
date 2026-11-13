@@ -1,6 +1,6 @@
 # House API
 
-The house service drives the lights, air conditioners and heaters of a home behind one JSON API. Vigie's House tab is a client of it, and so will be the phone apps. It has no npm dependency and does not need Vigie.
+The house service drives the lights, air conditioners, heaters and shutters of a home behind one JSON API, and knows where they stand on its floor plan. Vigie's House tab is a client of it, and so will be the phone apps. It has no npm dependency and does not need Vigie.
 
 - Base path: `/api/v1`
 - Inside Vigie's agent (the default): `http://localhost:5252/api/v1`
@@ -39,6 +39,7 @@ curl -H "Authorization: Bearer $HOUSE_TOKEN" http://192.0.2.5:5253/api/v1/rooms
 room ─┬─ device (light)    driver govee-lan
       ├─ device (climate)  driver daikin
       ├─ device (heater)   driver cozytouch
+      ├─ device (cover)    a shutter or a blind
       └─ device (sensor)
 ```
 
@@ -89,6 +90,8 @@ A device:
 | `boost`, `drying` | heater | boolean. One excludes the other |
 | `windowDetection` | heater | boolean |
 | `schedule` | heater | the weekly program, in the heater's own format (see below) |
+| `schedule` | climate | the weekly program stored in the unit: `{ "type": "program", "perDay": 6, "modes": ["heat", "cool", "dry"] }`. See [Weekly program of an air conditioner](#weekly-program-of-an-air-conditioner) |
+| `position` | cover | 0 (closed) to 100 (open) |
 
 ### Reported only
 
@@ -99,7 +102,8 @@ A device:
 | `probeTemp` | climate | temperature read inside the indoor unit, °C. Not the room's |
 | `outdoorTemp` | climate | temperature at the outdoor unit, °C |
 | `energy` | climate | kWh of this indoor unit, heating and cooling together: `today`, `yesterday`, `week` (last 7 days), `month`, `year` |
-| `timer`, `schedule` | climate | `{ "enabled": true }` when the on/off timer or the weekly program of the unit is active. Read only for now |
+| `timer` | climate | `{ "enabled": true }` when the on/off timer of the unit is active. Read only |
+| `schedule` | climate | the weekly program stored in the unit (below). A unit that does not describe its entries only gives `{ "enabled": true }` |
 | `temperature` | heater, sensor | °C |
 
 ## Routes
@@ -138,6 +142,41 @@ curl -X POST http://localhost:5252/api/v1/devices/living-lamp \
 - 400: a capability the device does not have, or a value of the wrong kind. Nothing is sent.
 - 404: unknown device. 502: the device refused or did not answer, with its reason in `error`.
 
+### Weekly program of an air conditioner
+
+The program lives in the unit and runs with the service off. The state gives the active one of the unit's programs:
+
+```json
+"schedule": {
+  "enabled": true, "program": 1, "name": "Winter", "perDay": 6,
+  "days": {
+    "mon": [
+      { "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" },
+      { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }
+    ],
+    "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": []
+  }
+}
+```
+
+An entry turns the unit on in a mode, or off, at a time of that day. `enabled: false` is an entry kept but skipped. Entries come sorted by time.
+
+To change it, post what changes:
+
+```bash
+curl -X POST http://localhost:5252/api/v1/devices/living-ac \
+  -H "content-type: application/json" -d '{"schedule": {"enabled": false}}'
+```
+
+- `{"schedule": {"days": {…}}}` replaces every entry of the active program: a day left out is emptied. Send back the `days` you read, modified.
+- `{"schedule": {"enabled": true}}` starts or stops the program without touching its entries. Both keys can come together.
+- A new entry that turns the unit on takes a `mode` among the capability's `modes`, and for heat and cool a `setpoint` (rounded to the half degree, brought into range) and a `fan` (auto by default). Dry carries neither.
+- An entry the unit already holds goes back exactly as it is, whatever its mode: one set to auto in the manufacturer's app is kept, it just cannot be created from here.
+- 400, and nothing sent: more entries in a day than `perDay`, two entries of a day at the same time, a time that is not `HH:MM`, a mode or a fan speed the unit does not have.
+- 502: the unit refused, or answered but did not keep the program as sent. The driver reads it back after every write.
+
+The on/off timer of a unit is only reported, as active or not.
+
 ### `GET /api/v1/ambiances`
 
 Ambiances replace the scenes of the Govee app, which only exist in Govee's cloud. An ambiance is a light preset from the config: a brightness with a color or a color temperature. Applying one turns the light on.
@@ -169,6 +208,18 @@ The same, as a plain URL for a button that can only open an address (a Stream De
 http://localhost:5252/api/v1/scenes/leave/run?token=<house.token>
 ```
 
+### `GET /api/v1/plan`
+
+The floor plan (see [Plan](#plan)), with the anchors that were left out in `warnings`.
+
+```json
+{ "version": 1, "units": "m", "rooms": [], "walls": [], "openings": [], "furniture": [], "anchors": [], "warnings": [] }
+```
+
+- 404: `house.planPath` is not set. A client then draws no plan.
+- 500: the file cannot be read or breaks the schema, with the faults in `details`. The path of the file is never in the answer.
+- Sent with `Cache-Control: no-store`, like every answer of the service.
+
 ### `GET /api/v1/discovery`
 
 What each driver sees, to fill the config: the Govee lamps answering on the LAN with their `device` id, the devices of the Cozytouch account with their `deviceURL`.
@@ -176,6 +227,65 @@ What each driver sees, to fill the config: the Govee lamps answering on the LAN 
 ```json
 { "govee-lan": [ { "driver": "govee-lan", "device": "00:00:5E:00:53:01:00:01", "ip": "192.0.2.10", "sku": "H0000" } ] }
 ```
+
+## Plan
+
+The floor plan of the home, for a client that draws the devices where they stand. Vigie's House tab shows it as a model above its tiles.
+
+**The plan is private.** It is the layout of somebody's home: it lives in a file outside the repository, named by `house.planPath`, and only leaves through `GET /api/v1/plan`, under the access rules above. It is never served as a static file. The repository holds a made-up flat, `house/demo/plan.json`, for the tests and the screenshots.
+
+Lengths are in meters. `x` and `y` are on the floor (`y` goes down on a view from above), `z` goes up.
+
+```json
+{
+  "version": 1,
+  "units": "m",
+  "north": [0, -1],
+  "rooms": [
+    { "id": "living", "name": "Living room", "polygon": [[0, 0], [5.2, 0], [5.2, 3.8], [0, 3.8]], "height": 2.5, "floor": "wood" }
+  ],
+  "walls": [
+    { "id": "w-south", "a": [0, 3.9], "b": [5.2, 3.9], "thickness": 0.25, "exterior": true }
+  ],
+  "openings": [
+    { "id": "o-living-window", "type": "french-window", "wall": "w-south", "offset": 1.4, "width": 2.4, "height": 2.15, "sill": 0 }
+  ],
+  "furniture": [
+    { "id": "sofa", "room": "living", "position": [1.1, 2.9], "size": [2.1, 0.9, 0.8] }
+  ],
+  "anchors": [
+    { "deviceId": "living-lamp", "position": [2.6, 1.9, 2.3] },
+    { "deviceId": "living-shutter", "openingId": "o-living-window" }
+  ]
+}
+```
+
+| Key | Fields |
+|---|---|
+| `rooms` (required) | `id`, the same as the room of the config, so the room's devices and temperature find their floor. `name`, `polygon` (at least 3 `[x, y]` points, the inner faces of the walls), `height`, `floor` (`wood`, `tile`, `concrete`, `carpet`, `none`). A polygon without a room in the config is fine: a hall, a balcony. Optional `kind`: `outdoor` for a balcony or a loggia (a floor of its own, a rail where no wall closes it), `shaft` for a duct, drawn but not named, `storage` for a closet, named but without a shortcut. Any other value is a room |
+| `walls` | `id`, `a` and `b` (the two ends of its axis), `thickness`. Optional `exterior`: such a wall runs half a thickness past its ends so the corners close |
+| `openings` | `id`, `type` (`door`, `window`, `french-window`, `passage`, `closet`), `wall`, `offset` (meters from the wall's `a` to the near edge of the opening), `width`, `height`, `sill` (height of its bottom edge, 0 for a door). Optional `hinge` (`start` or `end`) and `opensInto` (a room id) draw the leaf of a door |
+| `furniture` | `id`, `position` (`[x, y]` of its middle), `size` (`[width, depth, height]`). Sides follow the axes. Optional `room`, `elevation` (height of its underside, for a wall cabinet), `planned` (drawn lighter: not there yet) |
+| `anchors` | `deviceId`, and either `position` (`[x, y, z]`) or `openingId` |
+| `north` | optional, the direction of north on the plan as `[x, y]`: `[0, -1]` when north is at the top of a view from above, `[1, 0]` when it is on the right. With it, the daylight of the model comes from where the sun is |
+| `meta` | free, not read by the service: where the measures come from, what is still a guess |
+
+A plan that breaks the schema is refused whole, with the list of what is wrong. An anchor in fault is only left out, and named in `warnings`: a device removed from the config does not take the plan away.
+
+### Adding a device to the plan
+
+A device appears on the plan once it has an anchor. Nothing else changes, in the plan or in the code:
+
+```json
+{ "deviceId": "bedroom-lamp", "position": [1.2, 4.6, 0.6] }
+```
+
+- A lamp, an air conditioner, a heater or a sensor takes a `position`: where it is in the room, `z` being its height above the floor.
+- A shutter or a blind takes the `openingId` of its window: it is drawn in the opening, as far down as its `position` says.
+
+The file is read again when it changes: reload the page, the service does not need a restart.
+
+How a device is drawn follows its `type` (`light`, `climate`, `heater`, `cover`, `sensor`), and for a type the page does not know, its capabilities: a `position` makes a cover, a `brightness` a light, a `setpoint` a heater or an air conditioner. A new kind of drawing is one more module in `public/js/plan3d.js`.
 
 ## Configuration
 
@@ -187,6 +297,7 @@ Under `house` in `config.json`:
     "host": "127.0.0.1",
     "port": 5253,
     "token": "a-long-random-string",
+    "planPath": "C:\\Users\\me\\Documents\\home\\plan.json",
     "rooms": [
       { "id": "living", "name": "Living room", "devices": [
         { "id": "living-lamp", "name": "Lamp", "type": "light", "driver": "govee-lan", "device": "00:00:5E:00:53:01:00:01" },
@@ -217,6 +328,8 @@ Under `house` in `config.json`:
 
 `host`, `port` and `token` only matter when the service runs alone. Secrets can come from the environment instead of the file: `HOUSE_TOKEN`, `GOVEE_API_KEY`, `COZYTOUCH_USERNAME`, `COZYTOUCH_PASSWORD`. `HOUSE_CONFIG` names another config file.
 
+`planPath` is the file of the floor plan, kept outside the repository. A relative path starts from Vigie's folder inside the agent, from the folder of the config file when the service runs alone. `HOUSE_PLAN` replaces it. Without it there is no plan and `/plan` answers 404.
+
 ## Drivers
 
 | Driver | Devices | Network | Settings of a device |
@@ -224,12 +337,21 @@ Under `house` in `config.json`:
 | `govee-lan` | Govee lights | local, UDP | `device` (the id given by `/discovery`) or `ip` |
 | `daikin` | Daikin air conditioners with a Wi-Fi adapter | local, HTTP | `ip` |
 | `cozytouch` | Atlantic, Thermor, Sauter heaters | Cozytouch cloud | `deviceURL` or `label` |
+| `demo` | made-up devices of any type, kept in memory | none | `state`, what the device starts with |
 
 **govee-lan.** Each lamp needs "LAN Control" switched on once in the Govee Home app (the lamp, then its settings). A scan goes to `239.255.255.250:4001` on every network card, lamps answer on port 4002, commands go to port 4003. Only one program can listen on 4002: the driver reports an error if Home Assistant or another instance already does. With `house.govee.cloudFallback` and an API key, a lamp that stays silent on the LAN and has a `sku` in its settings is reached through Govee's cloud instead, for a model without LAN support.
 
-**daikin.** Reserve the IP of each unit on the router. The driver reads what the unit supports from `get_model_info`. Energy comes from the per-unit counters (`get_day_power_ex`, `get_week_power_ex`, `get_year_power_ex`): on a multi-split, `get_week_power` gives the total of the outdoor unit, the same on every indoor unit. Timers are only reported as active or not: the format of their entries is not documented.
+**daikin.** Reserve the IP of each unit on the router. The driver reads what the unit supports from `get_model_info`. Energy comes from the per-unit counters (`get_day_power_ex`, `get_week_power_ex`, `get_year_power_ex`): on a multi-split, `get_week_power` gives the total of the outdoor unit, the same on every indoor unit. The weekly program is read from the unit and written into it (`get_scdltimer_info` gives the layout of an entry, `get_scdltimer_body` the entries of a program, `set_scdltimer_body` and `set_scdltimer_info` take them back). The on/off timer is only reported as active or not.
 
 **cozytouch.** Off until `house.cozytouch` holds the email and password of the Cozytouch (or Sauter, Thermor) account. Written after the open-source pyoverkiz library for an electric towel dryer, and tested on simulated answers only. The weekly program is read and written in the heater's own format, as the `schedule` capability: send back what `state.schedule` gave you, modified.
+
+**demo.** For the tests, the screenshots and trying the House tab without any hardware. `house/demo/config.json` is a made-up flat using it, with its plan beside it:
+
+```bash
+HOUSE_CONFIG=house/demo/config.json node house/server.js     # the API alone, on port 5253
+```
+
+To see it in the page, copy its `house` block into `config.json` and set `"planPath": "house/demo/plan.json"`.
 
 ### Adding a driver
 

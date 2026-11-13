@@ -1,5 +1,5 @@
 # Personal config (API keys, cities, screen position)
-config.json
+/config.json
 start-dashboard.local.bat
 
 # Data and caches written by the agent
@@ -10,6 +10,10 @@ backups/
 .briefing.json
 .batteries.json
 *.bak
+
+# The plan of a real home is private: it lives outside this folder (house.planPath)
+/plan*.json
+/house/plan*.json
 
 # Chrome profile of the kiosk mode
 chrome-profile/

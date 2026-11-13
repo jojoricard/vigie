@@ -5,9 +5,9 @@ import { refreshWeather, renderCityTabs, renderHorizon, refreshAqi, refreshSnow,
 import { refreshEnergy } from "./energy.js";
 import { refreshSensors, refreshSparks, refreshHistory, initHistControls, refreshMarkers, drawHistory, refreshSystem, refreshDevices } from "./system.js";
 import { refreshMachine, refreshChanges, refreshCrash, refreshNetwork, refreshYear, refreshWindows, refreshServices } from "./machine.js";
-import { refreshHouse, refreshFuel } from "./house.js";
+import { refreshHouse } from "./house.js";
 import { refreshMedia } from "./media.js";
-import { refreshTools } from "./tools.js";
+import { refreshTools, refreshFuel } from "./tools.js";
 import { queueBriefing } from "./briefing.js";
 
 const MIN = 60 * 1000;
@@ -82,7 +82,7 @@ function initTabnav() {
     // a hidden canvas has a zero width: redraw when coming back
     if (tab === "overview") { drawHistory(); startAnim(); queueFit(); }
     if (tab === "weather") onWeatherTabShown();
-    if (tab === "house") { refreshHouse(); refreshFuel(); }
+    if (tab === "house") refreshHouse();
   });
 }
 
