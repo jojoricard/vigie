@@ -10,6 +10,9 @@ function releaseRows(g, rel) {
   if (!repos.length) return "";
   return `<div class="toolRel">${repos.map((r) => {
     const v = rel[r], fresh = v.date && Date.now() - new Date(v.date) < 14 * DAY_MS;
+    // "new version" needs an installed one to be newer than. Without it the row only
+    // says when the release came out, highlighted while it is recent.
+    const date = !v.date ? "" : v.installed ? relTime(v.date) : t("tools.released", relTime(v.date));
     // installed version: behind (orange) or up to date (green), nothing if unknown.
     // esc(): it can come from the registry's DisplayVersion, written freely by the installer
     const loc = v.installed
@@ -18,9 +21,9 @@ function releaseRows(g, rel) {
     return `<div class="relRow" data-url="${encodeURIComponent(v.url || "")}">
       <span class="rn">${esc(r.split("/").pop())}</span>
       ${loc}
-      ${fresh ? `<span class="relNew">${t("tools.new")}</span>` : ""}
+      ${v.outdated ? `<span class="relNew">${t("tools.new")}</span>` : ""}
       <span class="rv num">${esc(v.version)}</span>
-      <span class="rd">${relTime(v.date)}</span></div>`;
+      <span class="rd${fresh && !v.installed ? " fresh" : ""}">${date}</span></div>`;
   }).join("")}</div>`;
 }
 

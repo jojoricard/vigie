@@ -38,12 +38,18 @@
           </div>
           <div class="heroRight">
             <div id="tempoBadge"></div>
-            <div id="alertsList"></div>
             <!-- Breaks: titles only, as pills. The details live in the Machine tab. -->
             <div id="changeBadges"></div>
             <!-- Windows waiting for a reboot or updates, a service down. Details in Machine. -->
             <div id="machineBadges"></div>
-            <p class="briefing prose" id="briefing" hidden></p>
+            <!-- Weather warnings and the briefing, one block: its rule takes the color of the worst warning. -->
+            <div class="brief" id="briefBlock">
+              <div class="briefHead">
+                <span class="briefMeta" id="briefMeta" hidden></span>
+                <div id="alertsList"></div>
+              </div>
+              <p class="briefing prose" id="briefing" hidden></p>
+            </div>
             <!-- Only while something plays, and a few minutes after a pause. -->
             <div class="nowPlaying" id="nowPlaying" hidden></div>
           </div>
@@ -52,12 +58,11 @@
       </header>
 
       <div class="grid2">
-        <section class="card"><h2 data-i18n="card.processes"></h2><table id="procTable"></table></section>
         <section class="card">
           <h2 data-i18n="card.storage"></h2><div id="diskList"></div>
           <div id="ssdHealth" hidden></div>
-          <h2 class="sub" data-i18n="card.devices"></h2><div id="btList" class="err" data-i18n="searching"></div>
         </section>
+        <section class="card"><h2 data-i18n="card.devices"></h2><div id="btList" class="err" data-i18n="searching"></div></section>
       </div>
     </div>
 
@@ -78,6 +83,8 @@
         <div class="readouts" id="wxReadouts"></div>
         <div class="rainLine" id="rainWrap" hidden><span id="rainLbl"></span><div id="rainBars"></div></div>
         <div class="forecast" id="forecast"></div>
+        <!-- Stands for the Air quality card while the air is good and there is no pollen. -->
+        <div class="airLine" id="airLine" hidden></div>
       </section>
 
       <section class="card" id="energyCard" hidden>
@@ -87,7 +94,8 @@
     </div>
 
     <div class="col">
-      <section class="card"><h2 data-i18n="card.air"></h2><div class="readouts" id="aqiRow"></div><div id="pollenLine" hidden></div></section>
+      <!-- Only when a city is worse than "fair" or a pollen is around. -->
+      <section class="card" id="aqiCard" hidden><h2 data-i18n="card.air"></h2><div class="readouts" id="aqiRow"></div><div id="pollenLine" hidden></div></section>
 
       <section class="card" id="sysCard">
         <div class="cardHead"><h2 data-i18n="card.system"></h2><div class="meta" id="uptimeVal"></div></div>
@@ -158,6 +166,7 @@
       <div id="changeBody"></div>
     </section>
     <section class="card" id="crashCard" hidden><h2 data-i18n="card.incidents"></h2><div id="crashBody"></div></section>
+    <section class="card"><h2 data-i18n="card.processes"></h2><table id="procTable"></table></section>
     <section class="card" id="netCard" hidden>
       <div class="cardHead"><h2 data-i18n="card.network"></h2><div class="meta" id="netMeta"></div></div>
       <div class="readouts" id="netRow"></div>

@@ -12,9 +12,9 @@ The interface is available in English and French.
 
 The interface has five tabs. The Overview is meant to be read at a glance and fits on one screen without scrolling, on a vertical screen as on a 1080p landscape one. The other tabs go into detail.
 
-- **Overview**: time and the sun's path over the day with its golden and blue hours, today's weather and a 5 day forecast, air quality, electricity (machine consumption and cost), CPU/GPU/RAM with their last hour and a 30 day chart, top processes, storage, device batteries. What is playing shows up with a play/pause button, and pills appear only when something needs you: a restart, updates waiting, a service down.
+- **Overview**: time and the sun's path over the day with its golden and blue hours, today's weather and a 5 day forecast, electricity (machine consumption and cost), CPU/GPU/RAM with their last hour and a 30 day chart, storage, device batteries. Air quality gets its card only when it is worth a look. What is playing shows up with a play/pause button, and pills appear only when something needs you: a restart, updates waiting, a service down.
 - **Weather**: all your cities side by side, 48 hours hour by hour, pressure and its tendency, 7 days, animated rain radar, pollen, snow depth at a few spots.
-- **Machine**: hardware sheet (drivers, BIOS, updates), what changed recently, crash history with a diagnosis, connection quality, the services you watch (router, NAS, websites), a yearly summary.
+- **Machine**: hardware sheet (drivers, BIOS, updates), what changed recently, crash history with a diagnosis, top processes, connection quality, the services you watch (router, NAS, websites), a yearly summary.
 - **Tools**: your favorite links grouped by topic, and the latest versions of software you follow on GitHub.
 - **House**: control of Govee lights and Daikin air conditioners, fuel prices around home.
 

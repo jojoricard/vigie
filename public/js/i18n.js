@@ -87,8 +87,7 @@ export const I18N = {
     "energy.avgW": (w) => `${w} W avg`, "energy.month": "This month", "energy.projection": (k) => `projection ${k} kWh`,
     "energy.vs": (pct, month) => `${pct} % vs ${month}`, "energy.nextMonth": "comparison from next month",
 
-    "snow.isotherm": (m) => `0 °C isotherm · ${m} m`, "snow.none": "No snow",
-    "snow.noneDetail": (n) => `No snow cover or snowfall expected at the ${n} tracked spots`,
+    "snow.isotherm": (m) => `0 °C isotherm · ${m} m`,
     "snow.onSite": (t) => `${t} on site`, "snow.coming": (cm) => `<b style="color:#8fd6ff">+${cm} cm</b><br>expected within 5 days`,
     "snow.noFall": "no snowfall<br>expected within 5 days", "snow.unavailable": "Snow data unavailable",
 
@@ -156,7 +155,8 @@ export const I18N = {
     "mach.cpu": "Processor", "mach.cores": (c, t) => `${c} cores / ${t} threads`, "mach.gpu": "Graphics card",
     "mach.driver": (v) => `driver ${v}`, "mach.board": "Motherboard", "mach.ram": "Memory", "mach.disks": "Disks",
     "mach.windows": "Windows", "mach.hotfix": (kb) => `latest update ${kb}`,
-    "tools.installed": (v) => `installed ${v}`, "tools.upToDate": (v) => `up to date (${v})`, "tools.new": "new",
+    "tools.installed": (v) => `installed ${v}`, "tools.upToDate": (v) => `up to date (${v})`, "tools.new": "new version",
+    "tools.released": (when) => `released ${when}`,
     "tools.none": "No tools configured in config.json",
     "hol.today": (n) => `${n}, public holiday`, "hol.tomorrow": (n) => `${n} tomorrow, public holiday`,
     "hol.on": (n, day) => `${n} on ${day}, public holiday`,
@@ -179,6 +179,9 @@ export const I18N = {
     "win.rebootLong": "A restart is pending.", "win.updatesList": (n, list) => `${plural(n, "update", "updates")} to install: ${list}`,
     "media.play": "Play", "media.pause": "Pause",
     "nameday": (n) => `Name day: ${n}`,
+    "brief.head": (time) => time ? `Briefing · updated ${time}` : "Briefing",
+    "air.calm": (level) => `${level} air · no pollen`, "crash.showSamples": "Show the readings",
+    "alert.until": (when) => `until ${when}`, "hourShort": (h, m) => h === 0 && m === "00" ? "midnight" : `${String(h).padStart(2, "0")}:${m}`,
   },
 
   fr: {
@@ -264,8 +267,7 @@ export const I18N = {
     "energy.avgW": (w) => `${w} W moy.`, "energy.month": "Ce mois", "energy.projection": (k) => `projection ${k} kWh`,
     "energy.vs": (pct, month) => `${pct} % vs ${month}`, "energy.nextMonth": "comparatif dès le mois prochain",
 
-    "snow.isotherm": (m) => `isotherme 0 °C · ${m} m`, "snow.none": "Pas de neige",
-    "snow.noneDetail": (n) => `Aucun enneigement ni chute prévue sur les ${n} points suivis`,
+    "snow.isotherm": (m) => `isotherme 0 °C · ${m} m`,
     "snow.onSite": (t) => `${t} sur place`, "snow.coming": (cm) => `<b style="color:#8fd6ff">+${cm} cm</b><br>attendus sous 5 jours`,
     "snow.noFall": "aucune chute<br>prévue sous 5 jours", "snow.unavailable": "Données d'enneigement indisponibles",
 
@@ -333,7 +335,8 @@ export const I18N = {
     "mach.cpu": "Processeur", "mach.cores": (c, t) => `${c} cœurs / ${t} threads`, "mach.gpu": "Carte graphique",
     "mach.driver": (v) => `pilote ${v}`, "mach.board": "Carte mère", "mach.ram": "Mémoire", "mach.disks": "Disques",
     "mach.windows": "Windows", "mach.hotfix": (kb) => `dernier correctif ${kb}`,
-    "tools.installed": (v) => `installée ${v}`, "tools.upToDate": (v) => `à jour (${v})`, "tools.new": "nouvelle",
+    "tools.installed": (v) => `installée ${v}`, "tools.upToDate": (v) => `à jour (${v})`, "tools.new": "nouvelle version",
+    "tools.released": (when) => `sortie ${when}`,
     "tools.none": "Aucun outil configuré dans config.json",
     "hol.today": (n) => `${n}, jour férié`, "hol.tomorrow": (n) => `${n} demain, jour férié`,
     "hol.on": (n, day) => `${n} ${day}, jour férié`,
@@ -356,6 +359,9 @@ export const I18N = {
     "win.rebootLong": "Un redémarrage est en attente.", "win.updatesList": (n, list) => `${plural(n, "mise à jour", "mises à jour")} à installer : ${list}`,
     "media.play": "Lecture", "media.pause": "Pause",
     "nameday": (n) => `Fête : ${n}`,
+    "brief.head": (time) => time ? `Brief · mis à jour ${time}` : "Brief",
+    "air.calm": (level) => `Air ${level.toLowerCase()} · pas de pollen`, "crash.showSamples": "Voir les mesures",
+    "alert.until": (when) => `jusqu'à ${when}`, "hourShort": (h, m) => m !== "00" ? `${h} h ${m}` : h === 0 ? "minuit" : `${h} h`,
   },
 };
 

@@ -337,3 +337,50 @@ test('a field name of the context is rejected, in any language', () => {
   assert.equal(rejection('Samedi, rainChance à 20.', 'fr', SENT), 'field name "rainChance"');
   assert.equal(rejection('Nothing in alreadyShown.', 'en', SENT), 'field name "alreadyShown"');
 });
+
+/* ---------- Display ---------- */
+test('figures with their unit and day names are set in medium weight', async () => {
+  const { emphasize } = await page('briefing.js');
+  assert.equal(emphasize('Saturday down to 0 °C, 15 mm by 21 h and gusts at 62 km/h, 80 % sure.'),
+    '<b>Saturday</b> down to <b>0 °C</b>, <b>15 mm</b> by <b>21 h</b> and gusts at <b>62 km/h</b>, <b>80 %</b> sure.');
+  assert.equal(emphasize('Rain at 6 h 30, 1,5 mm then 12°.'), 'Rain at <b>6 h 30</b>, <b>1,5 mm</b> then <b>12°</b>.');
+});
+
+test('a bare number, a time, a word starting like a unit or a day inside a word are left alone', async () => {
+  const { emphasize } = await page('briefing.js');
+  for (const s of ['Frozen at 15:02, 3 incidents.', 'Back in 2 hours.', '11 days of Mondayitis.']) assert.equal(emphasize(s), s);
+});
+
+test('the text is escaped before any markup is added', async () => {
+  const { emphasize } = await page('briefing.js');
+  assert.equal(emphasize(`<img src=x onerror=1> l'eau & 5 mm`), '&lt;img src=x onerror=1&gt; l&#39;eau &amp; <b>5 mm</b>');
+  assert.equal(emphasize("l'h et d'hier"), 'l&#39;h et d&#39;hier', 'the digits of an entity are not a figure');
+});
+
+test('the end of a warning reads as a day and an hour, without the day when it ends today', async () => {
+  const { alertUntil } = await page('weather.js');
+  const today = new Date(); today.setHours(18, 0, 0, 0);
+  assert.equal(alertUntil(today.getTime()), 'until 18:00');
+  const later = new Date(Date.now() + 3 * 24 * 3600 * 1000); later.setHours(6, 30, 0, 0);
+  assert.equal(alertUntil(later.getTime()), `until ${later.toLocaleDateString('en-GB', { weekday: 'short' })} 06:30`);
+});
+
+test('the French hour is written "6 h", with its minutes only when there are some', async () => {
+  const { I18N } = await page('i18n.js');
+  assert.equal(I18N.fr['alert.until'](`sam. ${I18N.fr.hourShort(6, '00')}`), "jusqu'à sam. 6 h");
+  assert.equal(I18N.fr.hourShort(6, '30'), '6 h 30');
+  assert.equal(I18N.fr.hourShort(0, '30'), '0 h 30');
+});
+
+test('a warning ending at 00:00 runs until midnight, in both languages', async () => {
+  const { I18N } = await page('i18n.js');
+  const { alertUntil } = await page('weather.js');
+  assert.equal(I18N.fr['alert.until'](I18N.fr.hourShort(0, '00')), "jusqu'à minuit");
+  assert.equal(I18N.fr['alert.until'](`sam. ${I18N.fr.hourShort(0, '00')}`), "jusqu'à sam. minuit");
+  assert.equal(I18N.en.hourShort(0, '00'), 'midnight');
+  assert.equal(I18N.en.hourShort(0, '30'), '00:30');
+  const later = new Date(Date.now() + 3 * 24 * 3600 * 1000); later.setHours(0, 0, 0, 0);
+  assert.equal(alertUntil(later.getTime()), `until ${later.toLocaleDateString('en-GB', { weekday: 'short' })} midnight`);
+  assert.equal(I18N.fr['brief.head']('16:02'), 'Brief · mis à jour 16:02');
+  assert.equal(I18N.fr['brief.head'](''), 'Brief');
+});

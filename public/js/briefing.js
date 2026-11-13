@@ -3,7 +3,7 @@
    event, rate guard) and answers with the text to show.
    The context is split in two: what the screen already shows (not to repeat) and
    what to analyze to bring something new. */
-import { $, state, getJson, FetchError, DAY_MS, DAIKIN_VALUES } from "./core.js";
+import { $, state, esc, getJson, FetchError, DAY_MS, DAIKIN_VALUES } from "./core.js";
 import { t, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { wmoLabel, hourIndex } from "./weather.js";
 import { changeText, since } from "./machine.js";
@@ -181,6 +181,16 @@ export function buildContext() {
   };
 }
 
+/* Figures with their unit and day names in medium weight, so the eye lands on when and
+   how much. The text is escaped first and the pattern runs on the escaped text: nothing
+   written by the model reaches innerHTML as markup. The lookbehind keeps the digits of
+   an entity (&#39;) out. */
+export function emphasize(text) {
+  const days = [5, 6, 7, 8, 9, 10, 11].map((d) => fmtDate(new Date(2026, 0, d), { weekday: "long" })).join("|");
+  const figure = "(?<![#\\w])\\d+(?:[.,]\\d+)?\\s?(?:°C|°|mm|km/h|%|h(?:\\s?\\d{2})?)(?![\\p{L}\\d])";
+  return esc(text).replace(new RegExp(`${figure}|(?<![\\p{L}])(?:${days})(?![\\p{L}])`, "giu"), "<b>$&</b>");
+}
+
 async function sendBriefing() {
   const ctx = buildContext();
   if (!ctx) return;
@@ -194,8 +204,11 @@ async function sendBriefing() {
   }
   if (j.error) console.warn("Vigie: briefing:", j.error);
   // No text for today: yesterday's must not stay on screen.
-  $("briefing").textContent = j.text || "";
+  $("briefing").innerHTML = j.text ? emphasize(j.text) : "";
   $("briefing").hidden = !j.text;
+  $("briefMeta").textContent = j.text ? t("brief.head", j.at ? fmtTime(j.at) : "") : "";
+  $("briefMeta").hidden = !j.text;
+  $("briefBlock").classList.toggle("hasText", !!j.text);
 }
 
 /* Called after each refresh the briefing depends on. At startup they all land within

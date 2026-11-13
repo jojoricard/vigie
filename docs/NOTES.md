@@ -10,6 +10,10 @@ A card that is "hidden when empty" isn't free if it is rarely empty. A first ver
 
 The Tempo badge in the header only shows when tomorrow is red. A permanent badge ends up unseen.
 
+The Air quality card follows the same rule. While every city is "good" or "fair" (40 or less on the European index) and the home city has no pollen, there is nothing to act on: the card gives way to one line at the bottom of the weather card ("Fair air · no pollen", worded after the worst city). It comes back as soon as one city passes 40 or a pollen shows up. A city without data is ignored, no data at all keeps the card and its "unavailable". The full detail stays in Weather.
+
+Top processes moved from the Overview to Machine: at rest the list never changes and it took half a row. Storage and Devices now share that row as two cards.
+
 Tabs follow one rule: one tab per domain. The Year and Network cards are in Machine because the PC produces those measurements.
 
 ## Look
@@ -98,6 +102,8 @@ After an unexpected shutdown (Kernel-Power 41, BugCheck 1001, 6008, WHEA), the a
 
 The 30 day counters are computed by the agent on the full list, because the list shown is cut to 12 rows.
 
+The samples recorded before the last incident sit behind a "Show the readings" button, closed by default: the diagnosis is what gets read, the table is the evidence. Its liquid column only shows when a sample has a value. LibreHardwareMonitor no longer reads the AIO (see Sensors), and a column of dashes looked like a broken sensor.
+
 ## What changed
 
 The card compares the present with the past: latency, network losses, thermal drift, yesterday's consumption, disk space, how often incidents happen. Three rules everywhere, or it becomes a card you learn to ignore:
@@ -136,6 +142,10 @@ Starting `powershell.exe` costs about 1.4 s for 10 to 50 ms of work. The agent t
 
 Each snow spot is queried with the `elevation` parameter set to its altitude. Without it Open-Meteo answers for the mean altitude of its grid cell, valley floor included, and badly underestimates snow. It remains a weather model, not the ski resort report.
 
+Off season a list of spots at 0 cm says nothing. Without snow on the ground or expected anywhere, only the main spot (the first of the config) is shown, for its 0 °C level and the snowfall expected. With snow, only the spots that have some or expect some are listed, the deepest on top.
+
+The text of a warning is not in the MeteoAlarm feed but in the CAP document each entry links to, one per language: the agent fetches it for the warnings it keeps and takes the description in the configured language. Like the briefing, it is shown as written by the source. The link is only followed on MeteoAlarm's own host.
+
 The gap to the seasonal normal is computed over the last 10 years at the same date (± 3 days), once a day per city.
 
 The pressure tendency is the change over 3 hours, the meteorologists' interval: under 1 hPa it is steady, from 3.5 hPa a change of weather is close. It has its own request with the day before, the main series starts at midnight, too late for a tendency at 1 am.
@@ -145,6 +155,8 @@ The Weather tab makes no extra request: it uses the series already loaded for th
 ## Rain radar
 
 Leaflet with an OpenStreetMap base and RainViewer tiles, neither needs a key. CARTO's dark bases now require a key (the tile comes back watermarked, which a plain HTTP status check doesn't reveal). The OSM base is therefore darkened by a CSS filter applied to its own layer only, so the radar isn't darkened.
+
+The map opens on the selected city and about 150 km around it, the rain that matters in the next hours, instead of a frame from Bordeaux to Milan. The zoom is whatever fits that width in the map, so between 130 and 260 km across depending on the screen. RainViewer's free tiles stop at zoom 7 and answer beyond with a "zoom not supported" picture: Leaflet is told to stretch the level 7 tiles (`maxNativeZoom`).
 
 The animation alternates two radar layers: the next frame loads into the hidden one before switching. The map only recenters when the city changes, so a manual zoom isn't overridden.
 
@@ -221,6 +233,12 @@ The agent checks the text before caching and showing it, and refuses more than 3
 
 The fuel dataset only knows today's price. To tell that a price moved, the agent keeps the cheapest one of each fuel once a day (table `fuel`), and the briefing compares it with the oldest of the last 7 days.
 
+On screen the weather warnings and the briefing form one block, without a card. The warning pill used to float alone at the right above a text aligned at the left. The rule of the block takes the color of the worst warning, and an orange or red one tints its background. The block has a fixed width so the pills start at the same left edge with or without a text.
+
+Figures with their unit and day names are set in medium weight by the page. The text is escaped first and the pattern runs on the escaped text, so nothing the model writes reaches `innerHTML` as markup.
+
+A pill says until when its warning runs, from `cap:expires` in the MeteoAlarm feed. A warning renewed at the same level has several entries: the later end wins.
+
 On the page, `state.changes` and `state.crashCounts` are updated before any early return. A briefing announcing "3 days without incident" from a stale counter would be worse than no briefing.
 
 The prompt forbids em dashes, the model still slips one in now and then. The agent rewrites them, and semicolons, before the text reaches the page (`plain()` in `lib/briefing.js`).
@@ -231,7 +249,11 @@ To compare the installed version of a program with its latest release, Vigie rea
 
 The shortest name wins a tie. Under four characters there is no matching, there would be too many homonyms. A path declared in `localVersions` always wins.
 
-The comparison is numeric: `0.9.6.0` equals `v0.9.6`, and `0.100` is greater than `0.9`.
+The comparison is numeric, segment by segment, once the `v` prefix and the trailing zeros are gone: `0.102.3101.0` equals `v0.102.3101`, and `0.100` is greater than `0.9`.
+
+The latest release is picked from the 30 most recent ones, not from GitHub's "latest". That one trusts the pre-release flag, which Node leaves off on its alphas: tags holding alpha, beta, rc, nightly or canary are skipped too. Among the stable ones the highest version wins, not the most recent date, since a project with several maintained lines publishes the old one last. Node follows its LTS line, read from the release name ("(LTS)").
+
+"New version" is only said when the installed version is known and behind. Without an installed version the row says when the release came out ("released 2 d ago"), highlighted for two weeks. The old "new" badge only meant recent, and read as an update to install even on an up to date tool.
 
 ## Batteries
 

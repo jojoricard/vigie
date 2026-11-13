@@ -2,7 +2,7 @@
    air quality, pollen, snow and warnings. The page calls Open-Meteo directly, with
    timezone=auto so the hourly series follow each city's local time. */
 import { $, LS, state, esc, small, readout, load, COL } from "./core.js";
-import { t, dec, nb, fmtDate, fmtTime } from "./i18n.js";
+import { t, dec, nb, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { weatherIcon, moonIcon, icon, alertIcon } from "./icons.js";
 import { solarElevation, sunPath, lightBands } from "./sun.js";
 
@@ -312,6 +312,13 @@ function renderWeatherTab() {
 }
 
 /* ================= Weather warnings ================= */
+// "until Sat 06:00", without the day when the warning ends today
+export function alertUntil(ts) {
+  const d = new Date(ts);
+  const time = t("hourShort", d.getHours(), String(d.getMinutes()).padStart(2, "0"));
+  return t("alert.until", dayKey(d) === dayKey() ? time : `${fmtDate(d, { weekday: "short" })} ${time}`);
+}
+
 export async function refreshAlerts() {
   const list = await load("/alerts");
   if (!list) return;                      // keep the warnings already shown
@@ -321,7 +328,9 @@ export async function refreshAlerts() {
   for (const a of list) (byArea[a.area] = byArea[a.area] || []).push(a);
   $("alertsList").innerHTML = Object.entries(byArea).map(([area, items]) =>
     `<div class="warnGroup"><span class="area">${esc(area)}</span>` +
-    items.map((i) => `<span class="pill ${i.severity}">${alertIcon(i.type)}${t("alert." + i.type)}</span>`).join("") + `</div>`).join("");
+    items.map((i) => `<span class="pill ${i.severity}">${alertIcon(i.type)}${t("alert." + i.type)}${i.expires ? `<span class="until">· ${alertUntil(i.expires)}</span>` : ""}</span>`).join("") + `</div>`).join("");
+  // the list comes sorted most severe first: the briefing block takes that color
+  $("briefBlock").dataset.sev = list.length ? list[0].severity : "";
   renderWarningsDetail();
 }
 
@@ -330,7 +339,7 @@ function renderWarningsDetail() {
   $("mtAlertCard").hidden = !al.length;
   $("mtAlerts").innerHTML = al.map((a) => `<div class="chgLine">
       <span class="t"><span class="pill ${a.severity}">${alertIcon(a.type)}${t("alert." + a.type)}</span></span>
-      <span class="d">${t("warn.line", esc(a.area), t("sev." + a.severity))}</span>
+      <span class="d">${t("warn.line", esc(a.area), t("sev." + a.severity))}${a.expires ? ` · ${alertUntil(a.expires)}` : ""}${a.description ? `<span class="warnDesc">${esc(a.description)}</span>` : ""}</span>
     </div>`).join("");
 }
 
@@ -340,6 +349,19 @@ function renderWarningsDetail() {
    flips. No flicker, and not every frame in memory. */
 let radarMap = null, radarBuf = [null, null], radarActiveBuf = 0;
 let radarFrames = [], radarFrameIdx = 0, radarTimer = null, radarCenteredCity = -1, radarWaiting = false;
+
+// The city and its surroundings, about 150 km across: the rain that matters in the
+// next hours. The zoom follows from the width of the map.
+const RADAR_WIDTH_KM = 150;
+function centerRadar() {
+  const c = state.cities[state.sel];
+  const dLon = RADAR_WIDTH_KM / 2 / (111.32 * Math.cos(c.lat * Math.PI / 180));
+  radarMap.fitBounds([[c.lat, c.lon - dLon], [c.lat, c.lon + dLon]]);
+  radarCenteredCity = state.sel;
+}
+// RainViewer's free tiles stop at zoom 7 and answer with a "zoom not supported" picture
+// beyond: Leaflet stretches the level 7 ones instead.
+const RADAR_TILES = { opacity: 0, maxNativeZoom: 7 };
 
 function initRadarMap() {
   radarMap = L.map("radarMap").setView([46, 2], 6);
@@ -359,8 +381,7 @@ function initRadarMap() {
       L.DomEvent.disableClickPropagation(div);
       L.DomEvent.on(a, "click", (e) => {
         L.DomEvent.preventDefault(e);
-        const c = state.cities[state.sel];
-        radarMap.setView([c.lat, c.lon], 7);
+        centerRadar();
       });
       return div;
     },
@@ -385,8 +406,8 @@ function stepRadarAnim() {
   if (!radarFrames.length) { $("radarMeta").textContent = t("radar.unavailable"); radarWaiting = true; radarTimer = setTimeout(stepRadarAnim, 5 * 60 * 1000); return; }
   radarWaiting = false;
   if (!radarBuf[0]) {
-    radarBuf[0] = L.tileLayer(radarFrameUrl(radarFrames[0]), { opacity: 0 }).addTo(radarMap);
-    radarBuf[1] = L.tileLayer(radarFrameUrl(radarFrames[0]), { opacity: 0 }).addTo(radarMap);
+    radarBuf[0] = L.tileLayer(radarFrameUrl(radarFrames[0]), RADAR_TILES).addTo(radarMap);
+    radarBuf[1] = L.tileLayer(radarFrameUrl(radarFrames[0]), RADAR_TILES).addTo(radarMap);
   }
   const f = radarFrames[radarFrameIdx];
   const next = radarBuf[1 - radarActiveBuf];
@@ -404,11 +425,8 @@ function renderRadarMap() {
   // Leaflet comes from a CDN: without network the rest of the page still works.
   if (typeof L === "undefined") { $("radarMeta").textContent = t("radar.unavailable"); return; }
   if (!radarMap) initRadarMap();
-  if (radarCenteredCity !== state.sel) {
-    const c = state.cities[state.sel];
-    radarMap.setView([c.lat, c.lon], 7);
-    radarCenteredCity = state.sel;
-  }
+  // a hidden map has no width to fit the bounds in: centered when the tab shows
+  if (radarCenteredCity !== state.sel && radarMap.getSize().x) centerRadar();
   if (!radarFrames.length) refreshRadarFrames();
   if (!radarTimer) stepRadarAnim();
 }
@@ -467,7 +485,11 @@ function renderPressure(h, c) {
   $("pressureCard").hidden = false;
 }
 
-export function onWeatherTabShown() { if (radarMap) radarMap.invalidateSize(); }
+export function onWeatherTabShown() {
+  if (!radarMap) return;
+  radarMap.invalidateSize();
+  if (radarCenteredCity !== state.sel) centerRadar();
+}
 
 /* ================= Air quality and pollen ================= */
 const AQI_STEPS = [[20, "#50f0e6"], [40, "#50ccaa"], [60, "#f0e641"], [80, "#ff5050"], [100, "#ce4b78"], [999, "#b455e0"]];
@@ -476,13 +498,21 @@ const POLLENS = ["alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen
 const pollenName = (k) => t("pollen.names")[POLLENS.indexOf(k)];
 const pollenLevel = (v) => v >= 60 ? [t("pollen.high"), COL.bad] : v >= 25 ? [t("pollen.moderate"), COL.warn] : [t("pollen.low"), "var(--mint)"];
 
+/* Good or fair air everywhere and no pollen: nothing to act on, the Overview card gives
+   way to one line in the weather card. 40 is the top of "fair" on the European index. */
+const AQI_CALM_MAX = 40;
+export function airIsCalm(values, pollens) {
+  const known = values.filter((v) => v != null);
+  return known.length > 0 && !pollens && known.every((v) => v <= AQI_CALM_MAX);
+}
+
 export async function refreshAqi() {
   // Pollutants, pollen and a 4 day forecast for every city: one call per city serves
   // the Overview and the Weather tab.
   const pol = POLLENS.join(",");
   const rs = await Promise.all(state.cities.map((c) => load(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}`
     + `&current=european_aqi,pm2_5,pm10,nitrogen_dioxide,ozone,${pol}&hourly=${pol}&forecast_days=4&timezone=auto`)));
-  if (!rs.some(Boolean)) { $("aqiRow").innerHTML = `<div class="err">${t("unavailable")}</div>`; return; }
+  if (!rs.some(Boolean)) { $("aqiCard").hidden = false; $("airLine").hidden = true; $("aqiRow").innerHTML = `<div class="err">${t("unavailable")}</div>`; return; }
   state.air = rs;
   renderAqi();
   renderWeatherAir();
@@ -495,6 +525,12 @@ function renderAqi() {
   const active = p0 ? POLLENS.map((k) => ({ k, v: p0[k] })).filter((p) => p.v >= 1).sort((a, b) => b.v - a.v).slice(0, 3) : [];
   state.pollenSummary = active.map((p) => `${pollenName(p.k)} ${pollenLevel(p.v)[0]}`);
   if (p0) { const v = Math.round(p0.european_aqi), l = aqiLevel(v); state.aqiSummary = l ? `${l.label} (${v})` : null; }
+  const values = rs.map((r) => r && r.current ? Math.round(r.current.european_aqi) : null);
+  const calm = airIsCalm(values, active.length);
+  $("aqiCard").hidden = calm;
+  $("airLine").hidden = !calm;
+  // the worst city gives the word: "fair" as soon as one is
+  $("airLine").textContent = calm ? t("air.calm", aqiLevel(Math.max(...values.filter((v) => v != null))).label) : "";
   $("pollenLine").hidden = !active.length;
   $("pollenLine").innerHTML = icon("pollen") + `<span>${t("pollen.line")}</span>` + active.map((p) => {
     const [lab, col] = pollenLevel(p.v);
@@ -566,6 +602,14 @@ function renderWeatherAir() {
    `elevation` is set to the spot's altitude: without it Open-Meteo answers for the
    mean altitude of its grid cell, valley floor included, and underestimates snow.
    It is a weather model, not the ski resort report. */
+/* Which spots to show, from the list in the order of the config. Without snow anywhere
+   only the main spot (the first one) stays, for its 0 °C level and what is expected.
+   Otherwise the spots with snow on the ground or coming, the deepest on top. */
+export function snowRows(spots) {
+  const snowy = spots.filter((s) => s.cm > 0 || s.total > 0).sort((a, b) => b.cm - a.cm || b.total - a.total);
+  return snowy.length ? { top: snowy[0], list: snowy.slice(1) } : { top: spots[0], list: [] };
+}
+
 export async function refreshSnow() {
   const spots = state.cfg.snowSpots;
   $("snowCard").hidden = !spots.length;
@@ -588,19 +632,11 @@ export async function refreshSnow() {
       temp: (h.temperature_2m || [])[k],
       iso: (h.freezing_level_height || [])[k],
     };
-  }).sort((a, b) => b.cm - a.cm || b.total - a.total);
+  });
 
   const tp = (v) => v == null ? "–" : `${Math.round(v)}°`;
-  meta.textContent = data[0].iso != null ? t("snow.isotherm", nb(Math.round(data[0].iso))) : "";
-  // Off season, rows of zeros say nothing: one sentence is enough.
-  if (!data[0].cm && !data[0].total) {
-    top.innerHTML = `<div class="snowTop"><div class="ic">${icon("mountain")}</div><div>
-      <div class="d text">${t("snow.none")}</div>
-      <div class="sub">${t("snow.noneDetail", data.length)}</div></div></div>`;
-    list.innerHTML = "";
-    return;
-  }
-  const f = data[0];
+  const { top: f, list: others } = snowRows(data);
+  meta.textContent = f.iso != null ? t("snow.isotherm", nb(Math.round(f.iso))) : "";
   top.innerHTML = `<div class="snowTop">
     <div class="ic">${icon(f.cm ? "snowflake" : "mountain")}</div>
     <div>
@@ -611,7 +647,7 @@ export async function refreshSnow() {
     <div class="right">${f.total > 0 ? t("snow.coming", f.total) : t("snow.noFall")}</div>
   </div>`;
   const ref = Math.max(...data.map((s) => s.cm), 1);
-  list.innerHTML = data.slice(1).map((s) => `<div class="snowLine">
+  list.innerHTML = others.map((s) => `<div class="snowLine">
     <div class="name">${esc(s.name)}</div>
     <div class="alt num">${s.alt ? s.alt + " m" : ""}</div>
     <div class="snowBar"><i style="width:${Math.round((s.cm / ref) * 100)}%"></i></div>

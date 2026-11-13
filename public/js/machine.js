@@ -104,14 +104,18 @@ export async function refreshCrash() {
   let detail = "";
   if (r) {
     const when = fmtDate(r.at, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
-    const cols = t("crash.cols");
+    // The liquid column only when a sample has a value: LibreHardwareMonitor no longer
+    // reads the AIO, a column of dashes says nothing.
+    const liquid = r.samples.some((s) => s.l != null);
+    const cols = t("crash.cols").filter((_, i) => i !== 3 || liquid);
     const rows = r.samples.map((s) => `<tr><td class="num">${new Date(s.t).toLocaleTimeString(LOCALE)}</td>
       <td class="r num">${s.c != null ? Math.round(s.c) + "°" : "–"}</td><td class="r num">${s.g != null ? Math.round(s.g) + "°" : "–"}</td>
-      <td class="r num">${s.l != null ? dec(s.l) + "°" : "–"}</td><td class="r num">${s.r ?? s.rf ? dec(s.r ?? s.rf) + " %" : "–"}</td></tr>`).join("");
+      ${liquid ? `<td class="r num">${s.l != null ? dec(s.l) + "°" : "–"}</td>` : ""}<td class="r num">${s.r ?? s.rf ? dec(s.r ?? s.rf) + " %" : "–"}</td></tr>`).join("");
     detail = `<div class="crashDetail">
       <div class="crashTitle"><b>${t("incidentLong." + r.type)}</b> <span class="dim">· ${when}</span></div>
       ${r.hints.map((h) => `<div class="hint prose">${t("hint." + h.kind, h)}</div>`).join("")}
-      ${rows ? `<table class="crashTable"><tr class="dim"><td>${cols[0]}</td>${cols.slice(1).map((c) => `<td class="r">${c}</td>`).join("")}</tr>${rows}</table>` : ""}</div>`;
+      ${rows ? `<details class="crashSamples"><summary>${t("crash.showSamples")}</summary>
+        <table class="crashTable"><tr class="dim"><td>${cols[0]}</td>${cols.slice(1).map((c) => `<td class="r">${c}</td>`).join("")}</tr>${rows}</table></details>` : ""}</div>`;
   }
   $("crashBody").innerHTML = freq + list + detail;
 }

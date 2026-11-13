@@ -71,7 +71,7 @@ body {
 /* anti burn-in shift on .wrap, not body: it would break position:fixed */
 .tabPane { display: flex; flex-direction: column; gap: 16px; }
 /* Overview groups (landscape) melt into the column here, back in reading order:
-   weather, air, electricity, system, processes. */
+   weather, air, electricity, system, storage and devices. */
 #tabOverview > .col { display: contents; }
 /* fitToScreen() (main.js) zooms the page to the screen, the system card takes the height left */
 #tabOverview { flex: 1; }
@@ -106,17 +106,20 @@ body {
 /* A narrow hero (landscape column, phone) puts the briefing and the pills under the clock. */
 @container (max-width: 900px) {
   .heroTop { flex-direction: column; gap: 16px; }
-  .heroRight { max-width: none; align-items: flex-start; padding-top: 0; }
-  #alertsList, #changeBadges, #machineBadges { justify-content: flex-start; }
+  /* stretched, so the briefing block has a width to stay within */
+  .heroRight { max-width: none; align-self: stretch; align-items: flex-start; padding-top: 0; }
+  #changeBadges, #machineBadges { justify-content: flex-start; }
 }
 /* on a phone the day length no longer fits between sunrise and sunset */
 @container (max-width: 460px) {
   .hzLabel.center { display: none; }
 }
 #alertsList, #changeBadges, #machineBadges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+#alertsList { justify-content: flex-start; gap: 8px 16px; }
 #tempoBadge:empty, #changeBadges:empty, #alertsList:empty, #machineBadges:empty { display: none; }
 .warnGroup { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
-.warnGroup .area { color: var(--ink-3); }
+.warnGroup .area { font-size: 12px; color: var(--ink-3); }
+.pill .until { font-weight: 400; opacity: .8; }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; padding: 5px 12px 5px 9px; border-radius: 99px; border: 1px solid currentColor; }
 .pill .ico { width: 16px; height: 16px; }
 .pill .ico * { color: inherit; }
@@ -151,7 +154,20 @@ body {
 .hzMoon span { padding: 2px 6px; background: var(--abyss); transition: background-color 4s ease; }
 .hzMoon .ico { width: 30px; height: 30px; }
 
-.briefing { margin: 2px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--accent); font-size: 18px; line-height: 1.55; color: var(--ink-2); max-width: 72ch; }
+/* Warnings and briefing, one block without a card. Empty it takes no room, with
+   warnings only it is a row of pills, and the rule comes with the text. Its width is
+   fixed (60ch of text and the rule) so the pills start at the same left edge with or
+   without a text. */
+.brief { width: 640px; max-width: 100%; --brief-col: var(--accent); }
+.brief[data-sev="yellow"] { --brief-col: var(--amber); }
+.brief[data-sev="orange"] { --brief-col: #ff9a4d; }
+.brief[data-sev="red"] { --brief-col: var(--coral); }
+.brief.hasText { margin: 2px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--brief-col); }
+.brief.hasText[data-sev="orange"], .brief.hasText[data-sev="red"] { padding: 12px 16px 12px 20px; border-radius: 0 12px 12px 0; background: color-mix(in oklab, var(--brief-col) 7%, transparent); }
+.briefHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.briefMeta { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
+.briefing { margin-top: 8px; font-size: 19px; line-height: 1.5; color: var(--ink); max-width: 60ch; text-wrap: pretty; }
+.briefing b { font-weight: 500; }
 /* now playing, aligned with the briefing text */
 .nowPlaying { align-self: stretch; display: flex; align-items: center; gap: 14px; max-width: 72ch; padding: 6px 0 0 22px; }
 .npBtn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: var(--hull); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
@@ -230,6 +246,7 @@ body {
 .aqiScale { margin: 10px 0 6px; background: linear-gradient(90deg, #50f0e6 0 20%, #50ccaa 20% 40%, #f0e641 40% 60%, #ff5050 60% 80%, #ce4b78 80% 100%); }
 .aqiScale::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: color-mix(in oklab, var(--hull) 55%, transparent); }
 .aqiScale .mark { background: var(--ink); z-index: 1; }
+.airLine { margin-top: 14px; font-size: 14px; color: var(--ink-3); }
 #pollenLine { margin-top: 16px; font-size: 15px; color: var(--ink-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #pollenLine .ico { color: var(--mint); }
 
@@ -327,7 +344,8 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .chgLine { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--rule); }
 .chgLine:first-child { border-top: 0; }
 .chgLine .ic .ico { width: 18px; height: 18px; vertical-align: -3px; }
-.chgLine .t { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.chgLine .t { flex: none; font-size: 15px; font-weight: 600; white-space: nowrap; }
+.warnDesc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin-top: 4px; line-height: 1.45; }
 .chgLine.alert .t, .chgLine.alert .ic { color: var(--coral); }
 .chgLine.info .t, .chgLine.info .ic { color: var(--amber); }
 .chgLine .d { font-size: 14px; color: var(--ink-2); }
@@ -340,7 +358,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .snowTop .ic .ico { width: 40px; height: 40px; }
 .snowTop .nm { font-size: 14px; color: var(--ink-2); }
 .snowTop .d { font-size: 38px; font-weight: 500; line-height: 1.05; }
-.snowTop .d.text { font-size: 22px; }
 .snowTop .sub { font-size: 13px; color: var(--ink-3); margin-top: 3px; }
 .snowTop .right { margin-left: auto; text-align: right; font-size: 13px; color: var(--ink-2); }
 .snowLine { display: grid; grid-template-columns: minmax(0, 1.5fr) 56px minmax(50px, 1fr) 66px 44px 84px; align-items: center; gap: 12px; padding: 8px 2px; font-size: 14px; border-top: 1px solid var(--rule); }
@@ -382,6 +399,10 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .crashTitle { font-size: 15px; margin-bottom: 8px; }
 .crashTitle b { color: var(--coral); font-weight: 600; }
 .hint { font-size: 14px; line-height: 1.5; color: var(--ink-2); padding: 3px 0 3px 14px; border-left: 2px solid var(--rule); margin: 4px 0; }
+.crashSamples { margin-top: 12px; }
+.crashSamples summary { display: inline-block; font-size: 14px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--rule); color: var(--ink-2); cursor: pointer; list-style: none; }
+.crashSamples summary::-webkit-details-marker { display: none; }
+.crashSamples[open] summary { color: var(--ink); background: var(--tint); border-color: transparent; }
 .crashTable { margin-top: 12px; font-size: 13px; }
 .crashTable td { padding: 5px 0; }
 .monthRow { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; margin-top: 26px; }
@@ -415,7 +436,8 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .relRow .rn { flex: 1; }
 .relRow .rv { font-size: 14px; font-weight: 600; color: var(--accent); }
 .relRow .rd { font-size: 13px; color: var(--ink-3); white-space: nowrap; min-width: 92px; text-align: right; }
-.relNew { font-size: 12px; font-weight: 600; color: var(--mint); }
+.relNew { font-size: 12px; font-weight: 600; color: var(--mint); white-space: nowrap; }
+.relRow .rd.fresh { font-weight: 600; color: var(--mint); }
 .rloc { font-size: 13px; white-space: nowrap; }
 .rloc.late { color: var(--amber); }
 .rloc.ok { color: var(--mint); }
