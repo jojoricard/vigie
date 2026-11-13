@@ -7,6 +7,18 @@
   "lhmPollMs": 5000,
   "lgstrayUrl": "http://127.0.0.1:12321",
   "anthropicApiKey": "",
+  "briefing": {
+    "slots": { "morning": 5, "midday": 12, "evening": 17 },
+    "minIntervalMin": 30,
+    "maxPerDay": 8,
+    "rainSoonPct": 60,
+    "rainHourPct": 50,
+    "gustKmh": 50,
+    "fuelDeltaEur": 0.05,
+    "acHeatAboveC": 18,
+    "acCoolBelowC": 15,
+    "electricityGapPct": 20
+  },
   "goveeApiKey": "",
   "cities": [
     { "name": "Paris", "short": "Paris", "lat": 48.8566, "lon": 2.3522 },

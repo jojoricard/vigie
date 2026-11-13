@@ -16,7 +16,7 @@ const hm = (iso) => iso ? iso.slice(11, 16) : "–";
 const minutesOf = (iso) => Number(iso.slice(11, 13)) * 60 + Number(iso.slice(14, 16));
 
 // Index of the current hour in an hourly.time array (local time of the place).
-function hourIndex(times) {
+export function hourIndex(times) {
   if (!Array.isArray(times) || !times.length) return 0;
   const now = Date.now();
   let i = 0;

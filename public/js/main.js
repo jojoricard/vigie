@@ -8,7 +8,7 @@ import { refreshMachine, refreshChanges, refreshCrash, refreshNetwork, refreshYe
 import { refreshHouse, refreshFuel } from "./house.js";
 import { refreshMedia } from "./media.js";
 import { refreshTools } from "./tools.js";
-import { maybeBriefing } from "./briefing.js";
+import { queueBriefing } from "./briefing.js";
 
 const MIN = 60 * 1000;
 
@@ -32,6 +32,7 @@ async function refreshNameDay() {
 async function refreshHolidays() {
   const j = await load("/holidays");
   if (!j) return;
+  state.holidays = j;
   const today = dayKey();
   const tomorrow = dayKey(new Date(Date.now() + 86400000));
   const parts = [];
@@ -168,7 +169,9 @@ document.addEventListener("visibilitychange", () => {
   every(5 * MIN, refreshEnergy);
   every(MIN, refreshNetwork);
   every(10 * MIN, refreshChanges);
-  every(60 * MIN, refreshCrash);
+  // Weather, incidents, warnings and services feed the briefing: each refresh offers the
+  // agent a fresh context, which is also how the midday and evening texts get asked for.
+  every(60 * MIN, () => refreshCrash().then(queueBriefing));
   every(60 * MIN, refreshMarkers);      // they are dates: they don't move
   every(30 * MIN, refreshYear);
   every(12 * 60 * MIN, refreshMachine);
@@ -176,16 +179,15 @@ document.addEventListener("visibilitychange", () => {
   every(6 * 60 * MIN, refreshNameDay);
   every(6 * 60 * MIN, refreshHolidays);
   every(10000, refreshMedia);           // one PowerShell round trip each time
-  every(5 * MIN, refreshServices);
+  every(5 * MIN, () => refreshServices().then(queueBriefing));
   every(30 * MIN, refreshWindows);
   every(30 * MIN, refreshFuel);
   every(MIN, refreshHouse);
-  every(30 * MIN, refreshAlerts);
+  every(30 * MIN, () => refreshAlerts().then(queueBriefing));
   every(60 * MIN, refreshAqi);
   every(60 * MIN, refreshSnow);
   every(10 * MIN, refreshRadarFrames);  // RainViewer's real frame rate
-  // The briefing waits for the weather, then for warnings, pollen and incidents to arrive.
-  every(15 * MIN, () => refreshWeather().then(() => setTimeout(maybeBriefing, 8000)));
+  every(15 * MIN, () => refreshWeather().then(queueBriefing));
   addEventListener("resize", () => { startAnim(); drawHistory(); renderHorizon(); queueFit(); });
   // content that grows (briefing, rain, a new device) refits the page
   new ResizeObserver(queueFit).observe(document.querySelector(".wrap"));

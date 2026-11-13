@@ -119,6 +119,7 @@ export async function refreshCrash() {
 /* ================= Network health (latency measured by the agent) ================= */
 export async function refreshNetwork() {
   const d = await load("/network");
+  state.network = d;
   $("netCard").hidden = !d || !d.samples;
   if (!d || !d.samples) return;
   // Right after startup there are only a few readings: a "24 h average" over three
@@ -236,11 +237,12 @@ export async function refreshWindows() {
 
 const SVC_COLOR = { up: "var(--mint)", error: "var(--amber)", down: "var(--coral)" };
 // "since 14:02", with the day once it is no longer today
-const since = (ts) => dayKey(new Date(ts)) === dayKey() ? fmtTime(ts) : fmtDate(ts, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+export const since = (ts) => dayKey(new Date(ts)) === dayKey() ? fmtTime(ts) : fmtDate(ts, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 
 export async function refreshServices() {
   const l = await load("/services");
   if (!l) return;
+  state.services = l;
   $("servicesCard").hidden = !l.length;
   $("servicesList").innerHTML = l.map((s) => {
     const detail = s.state == null ? t("svc.waiting")

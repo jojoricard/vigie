@@ -21,7 +21,7 @@ const { crashReport } = require('./lib/crash');
 const { changes, markers } = require('./lib/changes');
 const machine = require('./lib/machine');
 const house = require('./lib/house');
-const { briefing } = require('./lib/briefing');
+const briefing = require('./lib/briefing');
 const { holidays } = require('./lib/calendar');
 const { fuel } = require('./lib/fuel');
 const { checkServices, services } = require('./lib/services');
@@ -106,6 +106,7 @@ const GET = {
     dimming: ctx.cfg.dimming || null,
     theme: ctx.cfg.theme || null,
     hasBriefing: !!ctx.cfg.anthropicApiKey,
+    briefing: briefing.settings(),
   }),
   '/sensors': sensors.readSensors,
   '/system': async () => ({ uptime: os.uptime(), processes: await topProcesses() }),
@@ -138,7 +139,7 @@ const POST = {
     execFile('rundll32', ['url.dll,FileProtocolHandler', u], { windowsHide: true }, (err) => { if (err) logError('/open', err); });
     return [200, { ok: true }];
   },
-  '/briefing': async (url, body) => [200, await briefing(body)],
+  '/briefing': async (url, body) => [200, await briefing.briefing(body)],
   '/media': async (url, b) => [200, { ok: await media.mediaAction(b.action) }],
   '/house/govee': async (url, b) => {
     // Device checked against the list given by Govee, capability limited to GOVEE_CAP_TYPE.

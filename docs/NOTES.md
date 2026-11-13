@@ -189,9 +189,37 @@ Removing CORS stops a third-party site from reading an answer, not from sending 
 
 ## Briefing
 
-The context sent to the model is split in two. `alreadyShown` holds what the screen already shows, and the model is told not to repeat it. `toAnalyze` holds what the display can't say: the next 5 days, the state of the machine, electricity. The model therefore only produces foresight and advice, in 3 sentences at most.
+The context sent to the model is split in two. `alreadyShown` holds what the screen shows in large type next to the text, and the model is told not to repeat it. `toAnalyze` holds what the display can't say: the next 12 hours hour by hour, the next 5 days, the house, a fuel price that moved, the state of the machine, electricity. The model therefore only produces foresight and advice, in 3 sentences at most.
 
-The titles of the breaks are already shown as pills, but not their figures. The model must give the figure and a consequence, not copy the title.
+Some of `toAnalyze` is on screen in small print: the titles of the breaks and the services down as pills, tomorrow's Tempo color, the coming holiday under the date. They stay there on purpose, the screen states them and draws nothing from them. The model must give the figure and a consequence, not copy the title.
+
+A field without data is left out of the context, never sent empty or `null`: the model comments on whatever it is given. Three rules came from the first real briefings, each enforced in the data before the prompt:
+
+- The machine is only described after an incident in the last 7 days or with a detected break. Given a quiet machine, the model wrote "11 days without incident, nothing to report".
+- Rain comes as spells with their hours and millimetres ("heavy rain until 21:00, about 15 mm") and no probability. The day's probability is on screen, so it sits in `alreadyShown`. Each spell carries its sky, so that advice fits the phenomenon: the car under cover is for hail or a flood, not for rain.
+- An air conditioner is only sent when it runs against the weather: heating above 18 °C outside, cooling below 15 °C. Neither the room temperature nor the target goes out. The Daikin probes read 3 to 5 °C too high, by a varying amount, and the model advised turning off a heating that was needed.
+
+More generally, an item only reaches the model if it calls for an action, and that filter lives in the code building the context, not in the prompt. Told that tomorrow is a blue Tempo day, the model writes that there is nothing to do, whatever the prompt says. So Tempo is sent for a white or red day only, rain only when an hour passes the threshold, electricity only when the projection is 20 % off the previous month, and a warning goes without its level, which the pill already shows.
+
+Three sentences are a ceiling, not a target: one sentence per useful thing, and "Rien de particulier aujourd'hui." when there is none.
+
+The text used to be written once a day, at the first display: stale by the afternoon, and a crash at 3 pm only showed up the next day. It is now written per time slot (morning, midday from 12, evening from 17) and again as soon as something new happens: an incident, rain likely within 3 hours, a weather warning, a service going down. The agent also adds the current time and the slot to the context, so the model can say "tonight" or "in 2 hours".
+
+The page decides nothing. It posts its context after every refresh of the weather, the incidents, the warnings and the services, and the agent answers from its cache unless the slot changed or the context holds an event the cached text did not know. The fingerprint is that list of events, not a hash: only a new key counts. A hash would also rewrite the text when the shower has passed or the warning is lifted, and a forecast hovering around 60 % would burn a call at every flip.
+
+Before 5 am the slot is still the evening before. Otherwise a text written at ten past midnight would stand for the whole morning.
+
+The call is paid, so a guard caps it: one call per 30 minutes and 8 a day, events or not. Failed attempts count, or a rejected key would be retried at every refresh. While the guard holds, the text of an earlier slot of the same day is served rather than nothing. Yesterday's is not: the page hides the line.
+
+At startup the refreshes all land within seconds. The page waits until 8 s have passed without a new one before posting, or the first text of the day would be written before the incidents arrive and the guard would then keep them out for half an hour.
+
+Open-Meteo's hourly rain, probability and gusts cover the hour before their timestamp. The summary labels them with the hour they start at, or "rain at 17:00" would mean rain that has ended by then.
+
+Haiku 5.5 thinks by default and its thinking counts in `max_tokens`, hence 2000 tokens for three sentences. Thinking was first turned off to fit in 300: the model then reasoned inside its answer, in English, and corrected a first false sentence on screen ("Ah wait, I need to correct that"). This model takes no explicit thinking budget (`budget_tokens` is refused), only an effort level, left at its default.
+
+The agent checks the text before caching and showing it, and refuses more than 3 sentences, more than 400 characters, English reasoning words in a French text, or a field name of the context. Only the keys that cannot be ordinary words are looked for (`nextDays`, `next12h`): `machine` or `tempo` are fields too. A refused text counts as a call, the previous one stays on screen.
+
+The fuel dataset only knows today's price. To tell that a price moved, the agent keeps the cheapest one of each fuel once a day (table `fuel`), and the briefing compares it with the oldest of the last 7 days.
 
 On the page, `state.changes` and `state.crashCounts` are updated before any early return. A briefing announcing "3 days without incident" from a stale counter would be worse than no briefing.
 

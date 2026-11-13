@@ -18,7 +18,7 @@ The interface has five tabs. The Overview is meant to be read at a glance and fi
 - **Tools**: your favorite links grouped by topic, and the latest versions of software you follow on GitHub.
 - **House**: control of Govee lights and Daikin air conditioners, fuel prices around home.
 
-Optionally, a short briefing written by Claude sits next to the clock and sums up what deserves your attention today.
+Optionally, a short briefing written by Claude sits next to the clock and sums up what deserves your attention, in the morning, at midday and in the late afternoon.
 
 Weather warnings come from MeteoAlarm and work in 37 European countries, set with `country`. A few cards use French public data and only appear when `country` is `"FR"`: the EDF Tempo color and the days left, the grid's carbon intensity (éCO2mix), the regulated electricity price, the name day, public and school holidays, fuel prices.
 
@@ -79,6 +79,7 @@ Everything is set in `config.json`. Only the cities are really needed: any card 
 | `electricity.baseWatts` | Watts to add to CPU + GPU for the rest of the machine |
 | `fuel` | Fuel prices around the first city: `{ "types": ["e10", "sp98"], "radiusKm": 5 }`, among `gazole`, `sp95`, `e10`, `sp98`, `e85`, `gplc` |
 | `anthropicApiKey` | Turns on the briefing |
+| `briefing` | Optional tuning of the briefing, see below |
 | `goveeApiKey` | Govee cloud API key, requested from the Govee Home app |
 | `daikin` | List of `{ name, ip }` for the air conditioners. Reserve their IPs on your router |
 | `theme` | Background color, the whole palette derives from it: `{ "color": "#0d3b66" }`. Add `"accent"` to pick the highlight color yourself |
@@ -86,6 +87,21 @@ Everything is set in `config.json`. Only the cities are really needed: any card 
 | `port`, `lhmUrl`, `lgstrayUrl` | Ports and addresses of the local services |
 
 The other colors (warnings, temperature scale) are in `public/style.css`, alert thresholds (`THRESHOLDS`) in `public/js/system.js`.
+
+The briefing is rewritten three times a day, and right away when something new happens (a PC incident, rain coming, a weather warning, a service down). Every key of `briefing` is optional:
+
+| Key | Default | What it does |
+|---|---|---|
+| `slots` | `{ "morning": 5, "midday": 12, "evening": 17 }` | Hour each time slot starts at. Before `morning`, the night still counts as the evening before |
+| `minIntervalMin` | `30` | Minimum minutes between two calls to the model |
+| `maxPerDay` | `8` | Maximum calls to the model per day |
+| `rainSoonPct` | `60` | Rain probability within the next 3 hours that triggers a new briefing |
+| `rainHourPct` | `50` | Rain probability above which an hour is listed for the model |
+| `gustKmh` | `50` | Gust speed above which an hour is listed for the model |
+| `fuelDeltaEur` | `0.05` | Price change in € per litre, over up to 7 days, from which a fuel is mentioned |
+| `acHeatAboveC` | `18` | Outdoor temperature above which a heating left on is pointed out |
+| `acCoolBelowC` | `15` | Outdoor temperature below which a cooling left on is pointed out |
+| `electricityGapPct` | `20` | Gap in % between the month's projection and the previous month from which electricity is mentioned |
 
 ## How it works
 

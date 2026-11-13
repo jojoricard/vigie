@@ -2,7 +2,7 @@
    Lights go without confirmation. For an air conditioner we confirm turning it on
    and any setting on a running unit. Turning off, or setting a unit that is off,
    stays direct: nothing costly starts. */
-import { $, state, esc, load } from "./core.js";
+import { $, state, esc, load, DAIKIN_VALUES } from "./core.js";
 import { t, dec, relTime } from "./i18n.js";
 import { icon } from "./icons.js";
 
@@ -10,6 +10,7 @@ let houseData = null;
 
 export async function refreshHouse() {
   houseData = await load("/house");
+  state.house = houseData;
   renderHouse();
 }
 
@@ -25,13 +26,12 @@ async function control(path, body, who) {
   const j = await res.json().catch(() => ({}));
   if (!res.ok) return alert(t("houseError", who, j.error || t("failed")));
   houseData = j;
+  state.house = houseData;
   renderHouse();
 }
 const goveeAction = (device, sku, instance, value) => control("/house/govee", { device, sku, instance, value }, t("light"));
 const daikinAction = (name, changes) => control("/house/daikin", { name, ...changes }, t("aircon", name));
 
-// Daikin values, in the order of their I18N labels.
-const DAIKIN_VALUES = { mode: ["0", "2", "3", "4", "6"], f_rate: ["A", "B", "3", "4", "5", "6", "7"], f_dir: ["0", "1", "2", "3"] };
 const DAIKIN_LABELS = { mode: "daikin.mode", f_rate: "daikin.rate", f_dir: "daikin.dir" };
 const daikinOptions = (field) => DAIKIN_VALUES[field].map((v, i) => [v, t(DAIKIN_LABELS[field])[i]]);
 // Quick color swatches: the native picker cannot be styled (popup outside the DOM).
@@ -248,6 +248,7 @@ const updateHouseEmpty = () => {
    The cheapest stations around the home city (the first one), per fuel. */
 export async function refreshFuel() {
   const l = await load("/fuel");
+  state.fuel = l;
   $("fuelCard").hidden = !l || !l.length;
   updateHouseEmpty();
   if (!l || !l.length) return;
