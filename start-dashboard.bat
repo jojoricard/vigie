@@ -43,3 +43,6 @@ if not exist "%BROWSER%" (
   goto :eof
 )
 start "" "%BROWSER%" --user-data-dir="%~dp0chrome-profile" --disable-gpu --no-first-run --no-default-browser-check --app=http://localhost:%PORT% --window-position=%POS_X%,%POS_Y% --start-fullscreen
+
+rem --- Hide the dashboard window from Alt+Tab and the taskbar ---
+if exist "%~dp0hide-from-alttab.ps1" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0hide-from-alttab.ps1"
