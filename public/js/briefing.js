@@ -3,7 +3,7 @@
    event, rate guard) and answers with the text to show.
    The context is split in two: what the screen already shows (not to repeat) and
    what to analyze to bring something new. */
-import { $, state, esc, getJson, FetchError, DAY_MS, DAIKIN_VALUES } from "./core.js";
+import { $, state, esc, getJson, FetchError, DAY_MS } from "./core.js";
 import { t, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { wmoLabel, hourIndex } from "./weather.js";
 import { changeText, since } from "./machine.js";
@@ -119,12 +119,12 @@ function networkContext() {
    while it is cold. Neither the room temperature nor the target is sent: the Daikin
    probes read 3 to 5 °C too high, by a varying amount, and the model advised turning
    off a heating that was needed. */
-const DAIKIN_COOL = "3", DAIKIN_HEAT = "4";
 function houseContext(cfg) {
   const outdoor = state.weather[0].current.temperature_2m;
-  const units = ((state.house && state.house.daikin) || [])
-    .filter((u) => u.reachable && u.on && ((u.mode === DAIKIN_HEAT && outdoor > cfg.acHeatAboveC) || (u.mode === DAIKIN_COOL && outdoor < cfg.acCoolBelowC)))
-    .map((u) => ({ room: u.name, mode: t("daikin.mode")[DAIKIN_VALUES.mode.indexOf(u.mode)], running: true }));
+  const against = (s) => s.reachable && s.on && ((s.mode === "heat" && outdoor > cfg.acHeatAboveC) || (s.mode === "cool" && outdoor < cfg.acCoolBelowC));
+  const units = ((state.house && state.house.rooms) || []).flatMap((room) => room.devices
+    .filter((d) => d.type === "climate" && against(d.state))
+    .map((d) => ({ room: room.name, mode: t("opt.mode." + d.state.mode), running: true })));
   return units.length ? { outdoorTemp: Math.round(outdoor), airConditioners: units } : null;
 }
 

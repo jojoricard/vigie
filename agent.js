@@ -20,7 +20,7 @@ const energy = require('./lib/energy');
 const { crashReport } = require('./lib/crash');
 const { changes, markers } = require('./lib/changes');
 const machine = require('./lib/machine');
-const house = require('./lib/house');
+const house = require('./house/server');
 const briefing = require('./lib/briefing');
 const { holidays } = require('./lib/calendar');
 const { fuel } = require('./lib/fuel');
@@ -75,8 +75,8 @@ function send(res, code, body, type = 'application/json') {
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 }
 
-/* Anti-CSRF guard for the routes that act (link, lights, air conditioners, paid
- * model call). A "simple" POST (text/plain) goes out without a CORS preflight: the
+/* Anti-CSRF guard for the routes that act (link, paid model call). The house API has
+ * its own, of the same kind. A "simple" POST (text/plain) goes out without a CORS preflight: the
  * browser only blocks reading the answer, the command has already run. No Origin
  * header means a local client (curl), not a third-party page. */
 function sameOrigin(req) {
@@ -122,7 +122,6 @@ const GET = {
   '/machine': machine.machine,
   '/tools': () => ctx.cfg.tools || [],
   '/releases': machine.releases,
-  '/house': house.house,
   '/holidays': holidays,
   '/fuel': fuel,
   '/services': services,
@@ -141,29 +140,12 @@ const POST = {
   },
   '/briefing': async (url, body) => [200, await briefing.briefing(body)],
   '/media': async (url, b) => [200, { ok: await media.mediaAction(b.action) }],
-  '/house/govee': async (url, b) => {
-    // Device checked against the list given by Govee, capability limited to GOVEE_CAP_TYPE.
-    if (!(await house.isKnownGovee(b.device, b.sku)) || !house.GOVEE_CAP_TYPE[b.instance]) return [400, { error: 'unknown device or capability' }];
-    let value = b.value;
-    if (b.instance === 'colorTemperatureK') value = Math.min(9000, Math.max(2000, Number(value)));
-    if (b.instance === 'colorRgb') value = Math.min(0xffffff, Math.max(0, Number(value) || 0));
-    if (b.instance === 'lightScene' || b.instance === 'diyScene') {
-      // id/paramId taken from a scene Govee listed for this device, never from the page.
-      const match = (await house.goveeScenes(b.sku, b.device)).find((s) => s.id === (value && value.id));
-      if (!match) return [400, { error: 'unknown scene' }];
-      value = { id: match.id, paramId: match.paramId };
-    }
-    await house.goveeControl(b.device, b.sku, b.instance, value);
-    house.invalidateHouse();
-    return [200, await house.house()];
-  },
-  '/house/daikin': async (url, b) => {
-    if (!house.isKnownDaikin(b.name)) return [400, { error: 'unknown unit' }];
-    await house.daikinControl(b.name, b);
-    house.invalidateHouse();
-    return [200, await house.house()];
-  },
 };
+
+/* The house (lights, air conditioners, heaters) is a service of its own, with its own
+ * API under /api/v1 (house/API.md). It runs inside the agent by default and is meant to
+ * move to a machine that stays on: Vigie is only one of its clients. */
+const houseApi = house.mount(ctx.cfg.house);
 
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
@@ -174,11 +156,7 @@ async function route(req, res) {
   }
   if (req.method === 'GET' && GET[p]) return send(res, 200, await GET[p](url));
   if (req.method === 'GET' && p === '/history') return send(res, 200, history(url.searchParams.get('range')));
-  if (req.method === 'GET' && p === '/house/govee/scenes') {
-    const device = url.searchParams.get('device'), sku = url.searchParams.get('sku');
-    if (!(await house.isKnownGovee(device, sku))) return send(res, 400, { error: 'unknown device' });
-    return send(res, 200, await house.goveeScenes(sku, device));
-  }
+  if (p.startsWith(house.PREFIX)) return houseApi(req, res);
   if (req.method === 'POST' && POST[p]) {
     if (!sameOrigin(req)) return send(res, 403, { error: 'origin refused' });
     const body = p === '/open' ? {} : await readJson(req);

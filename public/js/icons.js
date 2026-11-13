@@ -107,6 +107,14 @@ const UI = {
   pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   restart: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.2h-4.2"/>',
   download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+  dots: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  cloud: '<path d="M7 18.5a4 4 0 0 1-.6-7.96 5.5 5.5 0 0 1 10.7-1.1A4.5 4.5 0 0 1 17 18.5Z"/>',
+  door: '<path d="M6 21V4.5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1V21M3.5 21h17M12.5 12.5v1"/><path d="M19 9.5l2.5 2.5-2.5 2.5"/>',
+  moon: '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z"/>',
+  sofa: '<path d="M5 11V8.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 19 8.5V11"/><path d="M3 12.5a2 2 0 0 1 4 0V15h10v-2.5a2 2 0 0 1 4 0V18H3ZM6 18v2M18 18v2"/>',
+  sparkle: '<path d="M12 3.5 13.8 9a2 2 0 0 0 1.2 1.2l5.5 1.8-5.5 1.8a2 2 0 0 0-1.2 1.2L12 20.5 10.2 15A2 2 0 0 0 9 13.8L3.5 12 9 10.2A2 2 0 0 0 10.2 9Z"/>',
   pump: '<path d="M5 20.5V5.5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15M3.5 20.5h12M7.5 8h4"/><path d="M14 10h1.5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 0 3 0V8l-2.5-2.5"/>',
 };
 export const icon = (name, cls = "") => svg(UI[name], "ui " + cls, 24);

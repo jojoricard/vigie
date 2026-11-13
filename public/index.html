@@ -188,14 +188,9 @@
 
   <!-- ================= HOUSE ================= -->
   <div class="tabPane" id="tabHouse" hidden>
-    <section class="card" id="goveeCard" hidden>
-      <h2 data-i18n="card.lights"></h2>
-      <div id="goveeList"></div>
-    </section>
-    <section class="card" id="daikinCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.aircon"></h2><div class="meta" id="daikinMeta"></div></div>
-      <div id="daikinList"></div>
-    </section>
+    <!-- Scenes as buttons, then one card per room, drawn from the house service. -->
+    <div class="sceneBar" id="sceneBar" hidden></div>
+    <div id="roomList"></div>
     <section class="card" id="fuelCard" hidden>
       <div class="cardHead"><h2 data-i18n="card.fuel"></h2><div class="meta" id="fuelMeta"></div></div>
       <div class="fuelGrid" id="fuelList"></div>

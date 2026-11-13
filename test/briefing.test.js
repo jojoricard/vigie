@@ -209,7 +209,7 @@ test('sources that answer with nothing to say are left out too', async () => {
     services: [{ name: 'Router', state: 'up' }, { name: 'NAS', state: null }],
     network: { samples: 2880, loss: 0.4, failingNow: false },
     // 14° outside: heating is expected, an idle unit or a fan says nothing
-    house: { govee: [], daikin: [{ name: 'Salon', reachable: false }, { name: 'Bureau', reachable: true, on: true, mode: '4', targetTemp: 20, ambientTemp: 23 }, { name: 'Chambre', reachable: true, on: false, mode: '3' }, { name: 'Cuisine', reachable: true, on: true, mode: '6' }] },
+    house: { rooms: [{ id: 'salon', name: 'Salon', devices: [{ id: 'salon-ac', type: 'climate', state: { reachable: false } }] }, { id: 'bureau', name: 'Bureau', devices: [{ id: 'bureau-ac', type: 'climate', state: { reachable: true, on: true, mode: 'heat', setpoint: 20, probeTemp: 23 } }] }, { id: 'chambre', name: 'Chambre', devices: [{ id: 'chambre-ac', type: 'climate', state: { reachable: true, on: false, mode: 'cool' } }] }, { id: 'cuisine', name: 'Cuisine', devices: [{ id: 'cuisine-ac', type: 'climate', state: { reachable: true, on: true, mode: 'fan' } }] }, { id: 'hall', name: 'Hall', devices: [{ id: 'hall-lamp', type: 'light', state: { reachable: true, on: true } }] }] },
     fuel: [
       { type: 'e10', stations: [{ price: 1.72 }], previous: { date: '2026-11-07', price: 1.69 } },   // 3 cents: not notable
       { type: 'gazole', stations: [{ price: 1.6 }], previous: null },                                // no history yet
@@ -231,7 +231,7 @@ test('each source that has something to say gets its field', async () => {
     holidays: { publicHoliday: { date: '2026-11-11', code: 'armistice' }, school: null },
     services: [{ name: 'Router', state: 'up' }, { name: 'NAS', state: 'down', since: Date.now() }],
     network: { samples: 2880, loss: 3.2, failingNow: false },
-    house: { govee: [], daikin: [{ name: 'Bureau', reachable: true, on: true, mode: '3', targetTemp: 19, ambientTemp: 25 }, { name: 'Salon', reachable: true, on: true, mode: '4', targetTemp: 21, ambientTemp: 24 }, { name: 'Chambre', reachable: false }] },
+    house: { rooms: [{ id: 'bureau', name: 'Bureau', devices: [{ id: 'bureau-ac', type: 'climate', state: { reachable: true, on: true, mode: 'cool', setpoint: 19, probeTemp: 25 } }] }, { id: 'salon', name: 'Salon', devices: [{ id: 'salon-ac', type: 'climate', state: { reachable: true, on: true, mode: 'heat', setpoint: 21, probeTemp: 24 } }] }, { id: 'chambre', name: 'Chambre', devices: [{ id: 'chambre-ac', type: 'climate', state: { reachable: false } }] }] },
     fuel: [{ type: 'e10', stations: [{ price: 1.759 }], previous: { date: '2026-11-07', price: 1.699 } }],
     lastCrash: { at: crashAt, type: 'bsod' },
   });
@@ -256,7 +256,7 @@ test('each source that has something to say gets its field', async () => {
 test('a heating left on is flagged above 18° outside, a white Tempo day is announced', async () => {
   const { buildContext } = await page('briefing.js');
   const state = await bareState();
-  state.house = { govee: [], daikin: [{ name: 'Salon', reachable: true, on: true, mode: '4' }] };
+  state.house = { rooms: [{ id: 'salon', name: 'Salon', devices: [{ id: 'salon-ac', type: 'climate', state: { reachable: true, on: true, mode: 'heat' } }] }] };
   state.energy = { tempo: { code: 1 }, tempoTomorrow: { code: 2 }, consumption: { monthly: { projection: null } } };
   state.weather[0].current.temperature_2m = 18;
   assert.equal('house' in buildContext().toAnalyze, false, '18° is not above 18°');

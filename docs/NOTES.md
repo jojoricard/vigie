@@ -162,14 +162,36 @@ The animation alternates two radar layers: the next frame loads into the hidden 
 
 ## House
 
+The house is a service of its own (`house/`), with its own API (`house/API.md`). It runs inside the agent by default, but nothing in it comes from Vigie: it is meant to move to a machine that stays on, and to serve phone apps too. Vigie's House tab is one client, drawn from what the service says each device can do. The page knows no brand.
+
+The model is by room: a room holds devices, each with a type, a driver and capabilities in one vocabulary (`on`, `brightness`, `mode`, `setpoint`…). One file per driver: adding a brand means adding a driver.
+
+Schedules live in the devices, not in the service. The PC is not on all day: a "turn on at 6:30" kept by the service would not fire. The service reads and writes the program stored in a heater and reports the timers of an air conditioner. What it runs itself are scenes, on demand.
+
+The temperature of a room comes from a sensor of its own. The probe of a Daikin indoor unit reads 3 to 5 °C above the room, by a varying amount: it is shown small as "unit probe", never as the room's temperature.
+
+Govee, local network (UDP):
+
+- no key, no cloud: a scan to the multicast group, the lamps answer with their IP, commands go straight to the lamp
+- each lamp needs "LAN Control" switched on once in Govee Home. A lamp that stays silent gets one message naming the two usual causes, since a lamp switched off at the wall looks exactly the same
+- the scan leaves on every network card: on a PC with Hyper-V or Docker adapters, the default one is often not the one the lamps are on
+- lamps are declared by the id the scan gives, not by IP, so a new DHCP lease changes nothing
+- Govee's scenes only exist in its cloud. They are replaced by ambiances, light presets kept in the config
+- the cloud driver stays as a fallback, off by default, for a lamp without LAN support. The cloud keeps answering with the last known state of a lamp that has no power
+
 Daikin (BRP069 and BRP072 adapters, local API without a key):
 
 - Node's `fetch()` gets a 403 from these units because of its `Host` header, hence `http.request`
-- `set_control_info` expects every field on every call. The agent reads the current state and only changes what is asked, otherwise sending a temperature resets the mode and the fan speed
+- `set_control_info` expects every field on every call. The driver reads the current state and only changes what is asked, otherwise sending a temperature resets the mode and the fan speed
+- each mode keeps its own target. A change of mode sends the target kept for the new mode: the current one may be `M` (dry) or `--` (fan), which the unit refuses
+- energy comes from the per-unit counters (`get_day_power_ex` and its week and year siblings). On a multi-split, `get_week_power` gives the total of the outdoor unit, the same figure on every indoor unit: summed over the rooms it would count the bill several times
+- powerful and eco are offered when the unit reports its special modes. The on/off timer and the weekly program are only reported as active or not: the format of their entries is documented nowhere, and writing a guess into a heating device is not an option
 
-Govee (cloud API): the light list is rediscovered on every call rather than fixed in the config. The state read right after a command can stay stale for a few seconds on the cloud side, the card catches up at the next refresh.
+Cozytouch (Atlantic, Thermor, Sauter, through the Overkiz cloud): written after pyoverkiz and Home Assistant's integration for an electric towel dryer, and only tested on simulated answers until a heater is installed. Off until its credentials are in the config. Boost and drying are one "temporary state" of the heater: leaving either goes back to plain heating.
 
-Security: control routes refuse any device missing from the list known on the server. Air conditioners ask for confirmation for anything that costs (turning on, changing the target), never for turning off.
+Security: the service will leave the PC, so it has a token from the start. Listening on the machine only, local callers need none, as for the agent. On a network address every request needs it, and the service refuses to start without one. A page of another site is refused unless it holds the token. The one GET that acts, to run a scene from a button, always asks for the token. Heating devices ask for confirmation for anything that costs (turning on, changing a running unit), never for turning off.
+
+The service writes no file: the lamps found by a scan are kept in memory.
 
 ## Services
 
@@ -195,7 +217,7 @@ The button sends play or pause, never toggle: a toggle would restart a player pa
 
 The agent only serves the files found in `public/` at startup, through a fixed table: no path from a request ever reaches the file system. It sends no CORS header. Serving the whole folder with a `*` CORS header used to expose `config.json` (API keys included) to any page open in the browser.
 
-Removing CORS stops a third-party site from reading an answer, not from sending a request. The routes that act (`/open`, `/briefing`, `/house/govee`, `/house/daikin`) are POST only and also check the `Origin` header.
+Removing CORS stops a third-party site from reading an answer, not from sending a request. The routes that act (`/open`, `/briefing`) are POST only and also check the `Origin` header. The house API has its own guard (see House).
 
 `/open` only opens URLs declared in `config.json`.
 

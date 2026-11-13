@@ -36,8 +36,6 @@ export const state = {
 
 export const GIB = 1073741824, MIB = 1048576;
 export const DAY_MS = 24 * 3600 * 1000;
-// Daikin values, in the order of their I18N labels.
-export const DAIKIN_VALUES = { mode: ["0", "2", "3", "4", "6"], f_rate: ["A", "B", "3", "4", "5", "6", "7"], f_dir: ["0", "1", "2", "3"] };
 export const COL = { warn: "#fce100", bad: "#ff6b6b", accent: "#b980ff" }; // state colors (gauges, thresholds)
 
 /* Escaping before innerHTML: text from WMI, the Windows log or config.json that we

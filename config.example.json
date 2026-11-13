@@ -19,7 +19,6 @@
     "acCoolBelowC": 15,
     "electricityGapPct": 20
   },
-  "goveeApiKey": "",
   "cities": [
     { "name": "Paris", "short": "Paris", "lat": 48.8566, "lon": 2.3522 },
     { "name": "Lyon", "short": "Lyon", "lat": 45.7578, "lon": 4.832 },
@@ -42,9 +41,45 @@
     { "name": "Router", "url": "http://192.168.1.1" },
     { "url": "https://example.com" }
   ],
-  "daikin": [
-    { "name": "Living room", "ip": "192.168.1.xxx" }
-  ],
+  "house": {
+    "host": "127.0.0.1",
+    "port": 5253,
+    "token": "",
+    "rooms": [
+      {
+        "id": "living",
+        "name": "Living room",
+        "devices": [
+          { "id": "living-lamp", "name": "Lamp", "type": "light", "driver": "govee-lan", "device": "00:00:5E:00:53:01:00:01" },
+          { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "daikin", "ip": "192.0.2.20" }
+        ]
+      },
+      {
+        "id": "bathroom",
+        "name": "Bathroom",
+        "devices": [
+          { "id": "towel-rail", "name": "Towel rail", "type": "heater", "driver": "cozytouch", "label": "Towel rail" }
+        ]
+      }
+    ],
+    "ambiances": [
+      { "id": "warm", "name": "Warm", "brightness": 45, "colorTempK": 2700 },
+      { "id": "reading", "name": "Reading", "brightness": 90, "colorTempK": 4000 }
+    ],
+    "scenes": [
+      {
+        "id": "leave",
+        "name": "Leaving",
+        "actions": [
+          { "type": "light", "set": { "on": false } },
+          { "type": "climate", "set": { "on": false } }
+        ]
+      },
+      { "id": "evening", "name": "Evening", "actions": [{ "device": "living-lamp", "set": { "ambiance": "warm" } }] }
+    ],
+    "govee": { "cloudFallback": false, "apiKey": "" },
+    "cozytouch": { "username": "", "password": "" }
+  },
   "tools": [
     {
       "name": "Dev",
