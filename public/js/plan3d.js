@@ -6,7 +6,8 @@
    while a view moves or an air conditioner blows, and nothing at all while hidden.
    Each kind of device is one entry of MODULES: a new type is a new entry. */
 import * as THREE from "../vendor/three/three.module.min.js";
-import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, LIMITS } from "./plan.js";
+import { furnitureParts, placePart } from "./furniture.js";
+import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallInside, wallDrop, LOW_WALL, LIMITS } from "./plan.js";
 
 const MAX_PIXEL_RATIO = 1.5;      // a 4K kiosk would otherwise shade four times the pixels
 const AMBIENT_FPS = 20;           // the breath of an air conditioner needs no more
@@ -276,7 +277,6 @@ export function createPlan3d(stage, plan, hooks) {
     wallTop: new THREE.MeshBasicMaterial({ color: pal.ink.clone().lerp(pal.ink2, 0.6) }),
     sill: lambert(pal.hull2.clone().lerp(pal.ink3, 0.3)),
     furniture: lambert(pal.neutral),
-    planned: lambert(pal.neutral, { transparent: true, opacity: 0.4 }),
     glass: new THREE.MeshBasicMaterial({ color: pal.sky, transparent: true, opacity: 0.38, depthWrite: false }),
     leaf: lambert(pal.ink3),
     base: lambert(pal.abyss.clone().lerp(pal.hull, 0.5)),
@@ -295,6 +295,16 @@ export function createPlan3d(stage, plan, hooks) {
     none: pal.hull2.clone().lerp(pal.ink3, 0.12),
     outdoor: pal.hull.clone().lerp(pal.ink3, 0.2),
   };
+
+  /* A real color brought to the dark theme: pulled toward the hull and dimmed, so a white
+     cabinet does not glare on the page and an oak top still reads as oak. */
+  function real(hex, pull = 0.14, level = 0.86) {
+    const c = new THREE.Color().setStyle(hex, THREE.SRGBColorSpace).lerp(pal.hull2, pull).multiplyScalar(level);
+    // black furniture would vanish on a dark page: it is lifted to a dark grey that still reads as black
+    const hsl = c.getHSL({});
+    return hsl.l < 0.16 ? c.setHSL(hsl.h, hsl.s * 0.6, 0.16 + hsl.l * 0.35) : c;
+  }
+  if (plan.wallColor) mat.wall.color.copy(real(plan.wallColor, 0.5, 0.55));
 
   const scene = new THREE.Scene();
   const sky = new THREE.HemisphereLight(pal.ink, pal.hull, 2);
@@ -322,7 +332,8 @@ export function createPlan3d(stage, plan, hooks) {
     const pos = geo.attributes.position, uv = geo.attributes.uv;
     for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - box.minX) / w, (pos.getZ(i) - box.minY) / h);
     const hollow = room.kind === "shaft" || room.kind === "unknown";
-    const tone = hollow ? pal.abyss.clone() : (room.kind === "outdoor" ? FLOOR_TONE.outdoor : FLOOR_TONE[room.floor] || FLOOR_TONE.none).clone();
+    // the real color of a floor when the plan gives one, else the tint of its material
+    const tone = hollow ? pal.abyss.clone() : room.floorColor ? real(room.floorColor, 0.3, 0.62) : (room.kind === "outdoor" ? FLOOR_TONE.outdoor : FLOOR_TONE[room.floor] || FLOOR_TONE.none).clone();
     const lc = Object.assign(document.createElement("canvas"), { width: Math.max(4, Math.round(w * LIGHT_PX)), height: Math.max(4, Math.round(h * LIGHT_PX)) });
     const light = { canvas: lc, g: lc.getContext("2d"), texture: new THREE.CanvasTexture(lc), key: "" };
     light.texture.flipY = false;
@@ -350,6 +361,19 @@ export function createPlan3d(stage, plan, hooks) {
     }
   }
 
+  /* A wall and what is set in it form a group: a wall in the way of its rooms comes
+     down with its windows and its doors (wallDrop), and back up when the model turns. */
+  const walls = new Map();   // wall id -> { group, inside }
+  for (const wall of plan.walls || []) {
+    const group = new THREE.Group();
+    walls.set(wall.id, { group, inside: wallInside(plan, wall) });
+    scene.add(group);
+  }
+  const inWall = (id) => (walls.get(id) || { group: scene }).group;
+  function dropWalls(azimuth, elevation) {
+    for (const { group, inside } of walls.values()) group.scale.y = 1 - wallDrop(inside, azimuth, elevation) * (1 - LOW_WALL / CUT_HEIGHT);
+  }
+
   for (const wall of plan.walls || []) {
     const f = wallFrame(wall), angle = -Math.atan2(f.uy, f.ux);
     for (const piece of wallPieces(plan, wall)) {
@@ -359,7 +383,7 @@ export function createPlan3d(stage, plan, hooks) {
       const box = new THREE.Mesh(new THREE.BoxGeometry(len, h, wall.thickness), [side, side, full ? mat.wallTop : side, side, side, side]);
       box.position.copy(at(wall.a[0] + f.ux * mid, wall.a[1] + f.uy * mid, piece.bottom + h / 2));
       box.rotation.y = angle;
-      scene.add(box);
+      inWall(wall.id).add(box);
     }
   }
 
@@ -372,7 +396,12 @@ export function createPlan3d(stage, plan, hooks) {
       const pane = new THREE.Mesh(new THREE.BoxGeometry(o.width, top - sill, 0.03), mat.glass);
       pane.position.copy(at(f.x, f.y, (sill + top) / 2));
       pane.rotation.y = angle;
-      scene.add(pane);
+      inWall(o.wall).add(pane);
+    } else if (o.type === "door" && o.closed) {
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(o.width, top, 0.04), mat.leaf);
+      leaf.position.copy(at(f.x, f.y, top / 2));
+      leaf.rotation.y = angle;
+      inWall(o.wall).add(leaf);
     } else if (o.type === "door") {
       // the leaf stands open, on the side of the room it opens into
       const room = plan.rooms.find((r) => r.id === o.opensInto);
@@ -384,20 +413,49 @@ export function createPlan3d(stage, plan, hooks) {
       const leaf = new THREE.Mesh(new THREE.BoxGeometry(o.width, top, 0.04), mat.leaf);
       leaf.position.copy(at(hinge[0] + dir[0] * o.width / 2, hinge[1] + dir[1] * o.width / 2, top / 2));
       leaf.rotation.y = -Math.atan2(dir[1], dir[0]);
-      scene.add(leaf);
+      inWall(o.wall).add(leaf);
     } else if (o.type === "closet") {
       const doors = new THREE.Mesh(new THREE.BoxGeometry(o.width - 0.04, top, 0.03), mat.furniture);
       doors.position.copy(at(f.x, f.y, top / 2));
       doors.rotation.y = angle;
-      scene.add(doors);
+      inWall(o.wall).add(doors);
     }
   }
 
+  /* Furniture: every piece is a few boxes and cylinders (furniture.js). They are drawn
+     as instances of one box and one cylinder, with one material per look: a home full
+     of furniture costs a handful of draw calls, whatever the number of pieces. */
+  const LOOKS = {
+    solid: () => new THREE.MeshLambertMaterial(),
+    ghost: () => new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.38, depthWrite: false }),   // planned, not there yet
+    glass: () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.26, depthWrite: false }),
+    sheer: () => new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }),
+    glow: () => new THREE.MeshBasicMaterial(),
+  };
+  const SHAPES = { box: () => new THREE.BoxGeometry(1, 1, 1), cyl: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 18) };
+  const batches = new Map();   // "shape|look" -> [{ matrix, color }]
+  const up = new THREE.Vector3(0, 1, 0), flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
   for (const item of plan.furniture || []) {
-    const [w, d, h] = item.size, height = Math.min(h, CUT_HEIGHT - 0.06), r = Math.min(0.09, w / 4, d / 4);
-    const geo = new THREE.ExtrudeGeometry(roundedRect(w - 0.04, d - 0.04, r), { depth: Math.max(0.02, height - 0.04), bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2, curveSegments: 5 }).rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, item.planned ? mat.planned : mat.furniture);
-    mesh.position.copy(at(item.position[0], item.position[1], Math.min(item.elevation || 0, CUT_HEIGHT - height) + 0.02));
+    for (const part of furnitureParts(item)) {
+      const placed = placePart(item, part), look = item.planned && part.look === "solid" ? "ghost" : part.look;
+      const turn = new THREE.Quaternion().setFromAxisAngle(up, -placed.angle * DEG);
+      // a cylinder lying against a wall: its axis goes from the back to the front of its item
+      const scale = new THREE.Vector3(part.size[0], part.size[2], part.size[1]);
+      const matrix = new THREE.Matrix4().compose(at(placed.at[0], placed.at[1], placed.at[2] + 0.02), part.lie ? turn.multiply(flat) : turn, scale);
+      const color = !part.color ? pal.neutral : look === "glow" ? new THREE.Color().setStyle(part.color, THREE.SRGBColorSpace) : real(part.color);
+      const key = `${part.shape}|${look}`;
+      batches.set(key, [...(batches.get(key) || []), { matrix, color }]);
+    }
+  }
+  let furnitureParts3d = 0;
+  for (const [key, list] of batches) {
+    const [shape, look] = key.split("|");
+    const mesh = new THREE.InstancedMesh(SHAPES[shape](), LOOKS[look](), list.length);
+    list.forEach((p, i) => { mesh.setMatrixAt(i, p.matrix); mesh.setColorAt(i, p.color); });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    mesh.renderOrder = look === "solid" || look === "glow" ? 0 : 1;   // what is seen through comes after
+    furnitureParts3d += list.length;
     scene.add(mesh);
   }
 
@@ -470,14 +528,16 @@ export function createPlan3d(stage, plan, hooks) {
       seen.add(p.device.id);
       let entry = live.get(p.device.id);
       if (!entry || entry.module !== p.module) {
-        if (entry) { scene.remove(entry.instance.object); entry.el.remove(); }
+        if (entry) { entry.instance.object.removeFromParent(); entry.el.remove(); }
         const instance = MODULES[p.module](ctx, p);
-        scene.add(instance.object);
+        // a shutter belongs to the wall of its window, and comes down with it
+        const host = p.point.opening ? inWall(p.point.opening.wall) : scene;
+        host.add(instance.object);
         const el = document.createElement("button");
         el.type = "button";
         el.dataset.device = p.device.id;
         overlay.appendChild(el);
-        entry = { module: p.module, instance, el, html: null, w: 0, h: 0 };
+        entry = { module: p.module, instance, host, el, html: null, w: 0, h: 0 };
         live.set(p.device.id, entry);
       }
       entry.instance.update(p.device);
@@ -490,7 +550,7 @@ export function createPlan3d(stage, plan, hooks) {
     }
     for (const [id, entry] of live) {
       if (seen.has(id)) continue;
-      scene.remove(entry.instance.object); entry.el.remove(); live.delete(id);
+      entry.instance.object.removeFromParent(); entry.el.remove(); live.delete(id);
     }
     for (const l of labels) {
       const label = hooks.roomLabel(l.room);
@@ -534,6 +594,7 @@ export function createPlan3d(stage, plan, hooks) {
     const aspect = width / Math.max(1, height), goal = frameView(plan, view, aspect);
     const f = glide ? mixFrame(glide.from, goal, glide.k) : goal;
     shownFrame = f;
+    dropWalls(f.azimuth, f.elevation);
     const { back } = viewAxes(f.azimuth, f.elevation);
     const target = at(f.center[0], f.center[1], f.center[2]);
     camera.position.copy(target).addScaledVector(at(back[0], back[1], back[2]), 120);
@@ -569,7 +630,7 @@ export function createPlan3d(stage, plan, hooks) {
 
   /* ---- drawing, on demand ---- */
   let raf = 0, timer = 0, dirty = true, active = true, disposed = false;
-  const spot = new THREE.Vector3();
+  const spot = new THREE.Vector3(), pinned = new THREE.Vector3();
   const project = (point) => { spot.copy(point).project(camera); return [(spot.x + 1) / 2 * width, (1 - spot.y) / 2 * height]; };
   const place = (el, x, y) => { el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`; };
   const overlap = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
@@ -580,7 +641,7 @@ export function createPlan3d(stage, plan, hooks) {
     const taken = [];
     for (const entry of live.values()) {
       if (!entry.w) { entry.w = entry.el.offsetWidth; entry.h = entry.el.offsetHeight; }
-      const [x, y] = project(entry.instance.pin);
+      const [x, y] = project(pinned.copy(entry.instance.pin).setY(entry.instance.pin.y * entry.host.scale.y));
       entry.el.hidden = x < -20 || y < -20 || x > width + 20 || y > height + 20;
       if (entry.el.hidden) continue;
       place(entry.el, x, y);
@@ -727,5 +788,5 @@ export function createPlan3d(stage, plan, hooks) {
   }
 
   resize();
-  return { update, show, highlight, dispose, roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; } };
+  return { update, show, highlight, dispose, roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
 }

@@ -262,15 +262,53 @@ Lengths are in meters. `x` and `y` are on the floor (`y` goes down on a view fro
 
 | Key | Fields |
 |---|---|
-| `rooms` (required) | `id`, the same as the room of the config, so the room's devices and temperature find their floor. `name`, `polygon` (at least 3 `[x, y]` points, the inner faces of the walls), `height`, `floor` (`wood`, `tile`, `concrete`, `carpet`, `none`). A polygon without a room in the config is fine: a hall, a balcony. Optional `kind`: `outdoor` for a balcony or a loggia (a floor of its own, a rail where no wall closes it), `shaft` for a duct, drawn but not named, `storage` for a closet, named but without a shortcut. Any other value is a room |
+| `rooms` (required) | `id`, the same as the room of the config, so the room's devices and temperature find their floor. `name`, `polygon` (at least 3 `[x, y]` points, the inner faces of the walls), `height`, `floor` (`wood`, `tile`, `concrete`, `carpet`, `none`), which gives its pattern, and optionally `floorColor` (`"#rrggbb"`), its real color. A polygon without a room in the config is fine: a hall, a balcony. Optional `kind`: `outdoor` for a balcony or a loggia (a floor of its own, a rail where no wall closes it), `shaft` for a duct, drawn but not named, `storage` for a closet, named but without a shortcut. Any other value is a room |
 | `walls` | `id`, `a` and `b` (the two ends of its axis), `thickness`. Optional `exterior`: such a wall runs half a thickness past its ends so the corners close |
-| `openings` | `id`, `type` (`door`, `window`, `french-window`, `passage`, `closet`), `wall`, `offset` (meters from the wall's `a` to the near edge of the opening), `width`, `height`, `sill` (height of its bottom edge, 0 for a door). Optional `hinge` (`start` or `end`) and `opensInto` (a room id) draw the leaf of a door |
-| `furniture` | `id`, `position` (`[x, y]` of its middle), `size` (`[width, depth, height]`). Sides follow the axes. Optional `room`, `elevation` (height of its underside, for a wall cabinet), `planned` (drawn lighter: not there yet) |
+| `openings` | `id`, `type` (`door`, `window`, `french-window`, `passage`, `closet`), `wall`, `offset` (meters from the wall's `a` to the near edge of the opening), `width`, `height`, `sill` (height of its bottom edge, 0 for a door). Optional `hinge` (`start` or `end`) and `opensInto` (a room id) draw the leaf of a door, open. `closed: true` draws it shut: a front door |
+| `furniture` | `id`, `position` (`[x, y]` of its middle), `size` (`[width, depth, height]`, in its own frame). Optional `type` and `params` (see [Furniture](#furniture)), `rotation` (degrees, clockwise on the plan: at 0 its front faces down the plan), `room`, `elevation` (height of its underside: something standing on a cabinet, hung on a wall), `planned` (drawn see-through: not there yet). Without a type it is a plain volume |
 | `anchors` | `deviceId`, and either `position` (`[x, y, z]`) or `openingId` |
+| `wallColor` | optional, the real color of the walls as `"#rrggbb"` |
 | `north` | optional, the direction of north on the plan as `[x, y]`: `[0, -1]` when north is at the top of a view from above, `[1, 0]` when it is on the right. With it, the daylight of the model comes from where the sun is |
 | `meta` | free, not read by the service: where the measures come from, what is still a guess |
 
 A plan that breaks the schema is refused whole, with the list of what is wrong. An anchor in fault is only left out, and named in `warnings`: a device removed from the config does not take the plan away.
+
+### Furniture
+
+A piece of furniture is an instance of a type, with its parameters. The types are a small library in `public/js/furniture.js`: simple volumes, detailed enough to tell a sideboard from a bookcase. A plan describes a home by what stands in it ("a white cabinet with an oak top and a niche in the middle"), never by a product.
+
+```json
+{ "id": "sideboard", "type": "cabinet", "position": [3.4, 6.1], "size": [1.6, 0.42, 0.85],
+  "params": { "body": "white", "top": "oak", "legs": 0.1, "niches": [[0.36, 0.64]], "baskets": 2 } }
+```
+
+| Type | Parameters |
+|---|---|
+| `box` | `color`. What an item without a type is |
+| `cabinet` | sideboard, TV stand, chest of drawers, kitchen units: `body`, `top` (a material, or none), `front`, `legs` (their height), `doors` or `columns`, `drawers` (rows), `niches` (open parts, each `[from, to]` as fractions of the width), `nicheHeight` (a fraction of the height when a niche only takes the top, with doors under it), `baskets` and `shelf` in the niches, `handles` (`false` for none) |
+| `shelving` | open shelves: `columns`, `rows`, `body`, `shelf` (when the shelves are of another material), `staggered` (every other column shifted by half a cell), `back`, `fill` (0 to 1: books and boxes), `bins` (a color: boxes closing some cells) |
+| `wallShelves` | shelves hung on a wall: `count`, `spacing`, `color` |
+| `table` | `top`, `legs`, `legSize`, `inset`, `apron`, `shelf`, or `pedestal: true` for one central foot |
+| `desk` | `top`, `legs` (a color, or `"panel"` for full sides), `round` legs. `shape: "L"` adds a return: `returnSide` (`left` or `right`), `returnLength`, `returnDepth` |
+| `chair` | `style`: `dining`, `office`, `stool`, `bar`. `color`, `legs`, `accent` |
+| `sofa` | `color`, `cushion`, `seats`, `arm` (width), `chaise` (`left` or `right`) and `chaiseLength` |
+| `bed` | `frame`, `linen`, `pillow`, `headboard` |
+| `screen` | a television or a monitor: `stand` (`false` to hang it), `upright` (the size is still the one of the screen lying down), `lit` (a color: the screen is on) |
+| `pc` | a computer case with a glass side: `body`, `glow` (the light inside) |
+| `lamp` | decor, not connected: `style` (`floor`, `arc`, `table`, `arch` for a table lamp on an arch), `color`, `shade`, and for an arc `reach` and `side` |
+| `plant` | `pot`, `leaves` |
+| `toilet`, `radiator` | `color` |
+| `appliance` | `style`: `fridge`, `washer`, `oven`, `unit` (the outdoor unit of an air conditioner). `color` |
+| `slats` | wooden slats on a wall: `color`, `backing`, `slat` (width), `pitch` |
+| `curtain` | a sheer curtain in front of a window: `color` |
+| `art` | a canvas or a frame on a wall: `color`, `frame`, or `mirror: true`, `round: true` |
+| `mannequin` | a dressmaker's dummy: `color` |
+
+A color is a material by name (`white`, `cream`, `black`, `charcoal`, `grey`, `steel`, `oak`, `walnut`, `pine`, `wicker`, `slate`, `fabric`, `linen`, `leather`, `green`, `terracotta`, `chrome`, `red`) or any `"#rrggbb"`. Real colors are toned to the dark theme when drawn.
+
+Furniture is cut with the walls, at 1.25 m. What is there to be seen (a lamp, a screen, shelves or a canvas on a wall, a plant) may rise half a meter above the cut, and what hangs higher is not drawn. A type the page does not know is drawn as a plain volume.
+
+A lamp of the house service standing on a piece of furniture needs both: the `lamp` item is the object, and the anchor of the device, placed at its shade, is where its light comes from.
 
 ### Adding a device to the plan
 

@@ -224,3 +224,148 @@ test('three.js is vendored at one pinned version, with its licence, and nowhere 
   assert.ok(readme.includes(sha), 'the README states the checksum of the file that is served');
   assert.match(fs.readFileSync(path.join(vendor, 'LICENSE'), 'utf8'), /MIT License/);
 });
+
+/* ---------- Furniture ---------- */
+const item = (type, extra = {}) => ({ id: 'x', type, position: [0, 0], size: [1.2, 0.5, 0.9], ...extra });
+
+test('every type of furniture gives sound parts that stay within reach of its size', async () => {
+  const { furnitureParts, FURNITURE_TYPES } = await page('furniture.js');
+  assert.ok(FURNITURE_TYPES.length >= 15);
+  for (const type of FURNITURE_TYPES) {
+    const parts = furnitureParts(item(type));
+    assert.ok(parts.length >= 1, type);
+    for (const p of parts) {
+      assert.ok(['box', 'cyl'].includes(p.shape) && ['solid', 'glass', 'sheer', 'glow'].includes(p.look), `${type}: a shape and a look the model knows`);
+      assert.ok(p.size.every((v) => v > 0) && p.at.every(Number.isFinite), `${type}: ${JSON.stringify(p)}`);
+      // nothing strays far from the footprint the plan gives (an arc lamp reaches out on purpose)
+      if (type !== 'lamp') assert.ok(Math.abs(p.at[0]) <= 0.6 + 0.2 && Math.abs(p.at[1]) <= 0.25 + 0.9, `${type}: a part at ${p.at}`);
+    }
+  }
+});
+
+test('an unknown type, or none, is drawn as a plain volume', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  for (const it of [item('hammock'), item(undefined)]) {
+    const parts = furnitureParts(it);
+    assert.equal(parts.length, 1);
+    assert.deepEqual(parts[0].size, [1.2, 0.5, 0.9]);
+  }
+  assert.equal(furnitureParts(item(undefined, { params: { color: 'oak' } }))[0].color, '#c59a63');
+});
+
+test('furniture is cut with the walls, except what is meant to be seen above them', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const { CUT_HEIGHT } = await page('plan.js');
+  const top = (parts) => Math.max(...parts.map((p) => p.at[2] + p.size[2] / 2));
+  assert.ok(top(furnitureParts(item('cabinet', { size: [1, 0.6, 2.2] }))) <= CUT_HEIGHT, 'a wardrobe stops at the cut');
+  assert.ok(top(furnitureParts(item('shelving', { size: [1, 0.3, 2] }))) <= CUT_HEIGHT);
+  const lamp = top(furnitureParts(item('lamp', { size: [0.3, 0.3, 1.6] })));
+  assert.ok(lamp > CUT_HEIGHT && lamp <= CUT_HEIGHT + 0.5, 'a floor lamp shows its shade above it');
+  assert.deepEqual(furnitureParts(item('art', { size: [0.5, 0.03, 0.4], elevation: 2.1 })), [], 'what hangs too high is not drawn');
+  assert.ok(top(furnitureParts(item('cabinet', { size: [1, 0.4, 0.5], elevation: 0.9 }))) <= CUT_HEIGHT - 0.9, 'the cut counts from the floor, not from the item');
+});
+
+test('the parameters of a type change what is drawn', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const count = (type, params, size) => furnitureParts(item(type, { params, ...(size ? { size } : {}) })).length;
+  const colors = (type, params) => new Set(furnitureParts(item(type, { params })).map((p) => p.color));
+  assert.ok(count('cabinet', { niches: [[0.3, 0.7]], baskets: 2 }) > count('cabinet', {}), 'a niche and its baskets');
+  assert.ok(colors('cabinet', { body: 'white', top: 'oak' }).has('#c59a63'), 'an oak top');
+  assert.ok(count('shelving', { columns: 4, rows: 4, fill: 0 }) > count('shelving', { columns: 2, rows: 2, fill: 0 }), 'more cells');
+  assert.ok(count('desk', { shape: 'L' }) > count('desk', {}), 'the return of a corner desk');
+  assert.ok(count('sofa', { chaise: 'left' }) > count('sofa', {}));
+  assert.equal(furnitureParts(item('screen', { params: { lit: '#7c3aed' } })).filter((p) => p.look === 'glow').length, 1, 'a lit screen glows');
+  assert.equal(furnitureParts(item('screen', {})).filter((p) => p.look === 'glow').length, 0);
+  assert.ok(furnitureParts(item('pc', { params: { glow: '#8b5cf6' } })).some((p) => p.look === 'glow') && furnitureParts(item('pc', {})).some((p) => p.look === 'glass'));
+  assert.ok(furnitureParts(item('curtain', {})).every((p) => p.look === 'sheer'));
+  // an arc lamp carries its shade away from its foot, on the side asked
+  const shade = (side) => furnitureParts(item('lamp', { size: [0.25, 0.25, 0.9], params: { style: 'arc', reach: 0.5, side } })).filter((p) => p.shape === 'cyl').pop().at[0];
+  assert.ok(shade('left') < -0.4 && shade('right') > 0.4);
+});
+
+test('a part follows the place and the rotation of its item', async () => {
+  const { placePart } = await page('furniture.js');
+  const { footprint } = await page('plan.js');
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+  const part = { at: [0.5, 0.2, 0.4] };
+  assert.ok(near(placePart({ position: [3, 4] }, part).at, [3.5, 4.2, 0.4]));
+  // a quarter turn clockwise on the plan: the front, down the plan at 0, now faces left
+  assert.ok(near(placePart({ position: [3, 4], rotation: 90, elevation: 1 }, part).at, [2.8, 4.5, 1.4]));
+  assert.equal(placePart({ position: [0, 0], rotation: 90 }, { at: [0, 0, 0], turn: 30 }).angle, 120);
+  const corners = footprint({ position: [0, 0], size: [2, 1], rotation: 90 });
+  assert.ok(near([Math.max(...corners.map((c) => Math.abs(c[0]))), Math.max(...corners.map((c) => Math.abs(c[1])))], [0.5, 1]), 'turned, a 2 by 1 item is 1 wide and 2 deep');
+});
+
+test('the furniture of the demo flat stays cheap to draw', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const plan = demo();
+  let parts = 0, triangles = 0;
+  const batches = new Set();
+  for (const it of plan.furniture) for (const p of furnitureParts(it)) { parts++; triangles += p.shape === 'box' ? 12 : 72; batches.add(`${p.shape}|${p.look}`); }
+  assert.ok(plan.furniture.every((it) => typeof it.type === 'string'), 'the demo shows the library');
+  assert.ok(batches.size <= 8, `${batches.size} draw calls for all the furniture: one per shape and look, not one per piece`);
+  assert.ok(triangles < 25000, `${triangles} triangles for ${parts} parts`);
+});
+
+test('on a tall screen a long home stands upright', async () => {
+  const { modelAngle } = await page('plan.js');
+  const long = { rooms: [{ id: 'a', polygon: [[0, 0], [12, 0], [12, 6], [0, 6]] }], walls: [] };   // twice as wide as deep
+  const tall = modelAngle(long, 0.6);
+  assert.ok(Math.abs(Math.abs(tall.azimuth) - Math.PI / 2) < 0.5, `seen from the side, got ${(tall.azimuth * 180 / Math.PI).toFixed(0)} degrees`);
+  assert.ok(Math.abs(modelAngle(long, 1.8).azimuth) < 0.7, 'a wide screen keeps it as drawn');
+  const deep = { rooms: [{ id: 'a', polygon: [[0, 0], [6, 0], [6, 12], [0, 12]] }], walls: [] };
+  assert.ok(Math.abs(modelAngle(deep, 0.6).azimuth) < 0.2, 'already upright: seen from the front, no turn');
+});
+
+test('a wall in the way of its rooms comes down, the others stand', async () => {
+  const { wallInside, wallDrop, LIMITS } = await page('plan.js');
+  const DEG = Math.PI / 180;
+  // two rooms side by side, a balcony under the left one
+  const plan = {
+    rooms: [
+      { id: 'a', polygon: [[0, 0], [4, 0], [4, 3], [0, 3]] }, { id: 'b', polygon: [[4, 0], [8, 0], [8, 3], [4, 3]] },
+      { id: 'out', kind: 'outdoor', polygon: [[0, 3.2], [4, 3.2], [4, 4.4], [0, 4.4]] },
+    ],
+    walls: [
+      { id: 'front', a: [0, 3.1], b: [8, 3.1], thickness: 0.2 }, { id: 'back', a: [0, -0.1], b: [8, -0.1], thickness: 0.2 },
+      { id: 'left', a: [-0.1, 0], b: [-0.1, 3], thickness: 0.2 }, { id: 'between', a: [4, 0], b: [4, 3], thickness: 0.1 },
+      { id: 'rail', a: [0, 4.5], b: [4, 4.5], thickness: 0.1 },
+    ],
+  };
+  const inside = (id) => wallInside(plan, plan.walls.find((w) => w.id === id));
+  const toward = (id) => inside(id).map((v) => Math.round(v) + 0);   // + 0: no negative zero
+  assert.deepEqual(toward('front'), [0, -1], 'the balcony behind it does not make it a wall between two rooms');
+  assert.deepEqual(toward('back'), [0, 1]);
+  assert.deepEqual(toward('left'), [1, 0]);
+  assert.equal(inside('between'), null, 'a wall between two rooms hides one of them whatever is done');
+  assert.deepEqual(toward('rail'), [0, -1], 'nothing indoors on either side: the balcony counts');
+  // seen from the front, the front wall is in the way, not the back one nor the side ones
+  assert.equal(wallDrop(inside('front'), 0, 68 * DEG), 1);
+  assert.equal(wallDrop(inside('back'), 0, 68 * DEG), 0);
+  assert.equal(wallDrop(inside('left'), 0, 68 * DEG), 0);
+  assert.equal(wallDrop(null, 0, 68 * DEG), 0);
+  // the three-quarter view comes from the front left: both near walls
+  assert.equal(wallDrop(inside('front'), -35 * DEG, 50 * DEG), 1);
+  assert.equal(wallDrop(inside('left'), -35 * DEG, 50 * DEG), 1);
+  // from above no wall hides anything, and in between it sinks little by little
+  assert.equal(wallDrop(inside('front'), 0, LIMITS.maxElevation), 0);
+  const steps = [50, 70, 76, 80, 84, 89].map((e) => wallDrop(inside('front'), 0, e * DEG));
+  assert.ok(steps.every((v, i) => !i || v <= steps[i - 1]) && steps.some((v) => v > 0 && v < 1), `no jump as the eye rises: ${steps.map((v) => v.toFixed(2))}`);
+});
+
+test('a niche may take only the top of a cabinet, a lamp may stand on an arch', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const cabinet = (params) => furnitureParts(item('cabinet', { size: [2, 0.4, 0.9], params: { niches: [[0.3, 0.7]], doors: 1, handles: false, ...params } }));
+  const fronts = (parts) => parts.filter((p) => p.size[1] === 0.012).length;
+  assert.equal(fronts(cabinet({})), 2, 'a full niche: one door on each side');
+  assert.equal(fronts(cabinet({ nicheHeight: 0.4 })), 4, 'under a low niche, the doors of the middle');
+  const basket = (parts) => parts.find((p) => p.color === '#b99766');
+  assert.ok(basket(cabinet({ baskets: 2, nicheHeight: 0.4 })).at[2] > basket(cabinet({ baskets: 2 })).at[2] + 0.3, 'the baskets stand on the floor of the niche');
+  // the shade of an arch lamp is as wide as the item and sits above its base
+  const lamp = furnitureParts(item('lamp', { size: [0.3, 0.3, 0.5], params: { style: 'arch' } }));
+  const shade = lamp[lamp.length - 1];
+  assert.ok(shade.shape === 'cyl' && Math.abs(shade.size[0] - 0.3) < 1e-9 && lamp.every((p) => p === shade || p.at[2] < shade.at[2]));
+  // a corner desk on panels closes the end of its return with one too
+  const desk = (legs) => furnitureParts(item('desk', { size: [2, 0.7, 0.75], params: { shape: 'L', legs } })).length;
+  assert.equal(desk('panel'), 5, 'two tops and three panels');
+});

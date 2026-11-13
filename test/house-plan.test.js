@@ -44,6 +44,12 @@ test('a plan of another version, or that is not an object, is refused', () => {
   assert.match(errorsOf((p) => { p.north = [0, 0]; })[0], /"north" must be an \[x, y\] direction/);
   assert.match(errorsOf((p) => { p.north = 'up'; })[0], /"north"/);
   assert.deepEqual(errorsOf((p) => { p.north = [1, 0]; }), []);
+  assert.match(errorsOf((p) => { p.wallColor = 'white'; })[0], /"wallColor" must be "#rrggbb"/);
+  assert.match(errorsOf((p) => { p.rooms[0].floorColor = 'oak'; })[0], /"floorColor"/);
+  assert.match(errorsOf((p) => { p.furniture[0].rotation = 'left'; })[0], /"rotation" must be a number/);
+  assert.match(errorsOf((p) => { p.furniture[0].params = [1]; })[0], /"params" must be an object/);
+  assert.match(errorsOf((p) => { p.furniture[0].type = 7; })[0], /"type" must be a name/);
+  assert.deepEqual(errorsOf((p) => { p.furniture[0].type = 'a-type-of-tomorrow'; p.wallColor = '#F0EEE9'; p.rooms[0].floorColor = '#b08d57'; }), [], 'a type the service does not know is the page\'s business');
 });
 
 test('rooms need an id, a polygon of three points and a known floor', () => {

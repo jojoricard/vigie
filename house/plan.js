@@ -19,6 +19,7 @@ class PlanError extends Error {
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isPoint = (p, n = 2) => Array.isArray(p) && p.length === n && p.every(isNum);
 const isId = (v) => typeof v === 'string' && v.length > 0;
+const isColor = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 const wallLength = (w) => Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
 
 /* Checks a plan against the schema. Structure faults are errors: the plan is refused.
@@ -30,6 +31,7 @@ function validate(plan, deviceIds = null) {
   if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return { errors: ['the plan must be a JSON object'], warnings, plan: null };
   if (plan.version !== VERSION) errors.push(`"version" must be ${VERSION}`);
   if (plan.units != null && plan.units !== 'm') errors.push('"units" must be "m"');
+  if (plan.wallColor != null && !isColor(plan.wallColor)) errors.push('"wallColor" must be "#rrggbb"');
   if (plan.north != null && !(isPoint(plan.north) && Math.hypot(plan.north[0], plan.north[1]) > EPS)) errors.push('"north" must be an [x, y] direction');
 
   const unique = (list, what) => {
@@ -53,6 +55,7 @@ function validate(plan, deviceIds = null) {
     if (!Array.isArray(r.polygon) || r.polygon.length < 3 || !r.polygon.every((p) => isPoint(p))) errors.push(`room "${r.id}": "polygon" must list at least 3 [x, y] points`);
     if (r.height != null && !(isNum(r.height) && r.height > 0)) errors.push(`room "${r.id}": "height" must be a positive number`);
     if (r.floor != null && !FLOORS.includes(r.floor)) errors.push(`room "${r.id}": "floor" must be one of ${FLOORS.join(', ')}`);
+    if (r.floorColor != null && !isColor(r.floorColor)) errors.push(`room "${r.id}": "floorColor" must be "#rrggbb"`);
   }
 
   const walls = list('walls', false);
@@ -92,6 +95,10 @@ function validate(plan, deviceIds = null) {
     if (!isPoint(f.position)) errors.push(`furniture "${f.id}": "position" must be [x, y]`);
     if (!isPoint(f.size, 3) || !f.size.every((v) => v > 0)) errors.push(`furniture "${f.id}": "size" must be [width, depth, height], all positive`);
     if (f.room != null && !roomIds.has(f.room)) errors.push(`furniture "${f.id}": unknown room "${f.room}"`);
+    if (f.type != null && !isId(f.type)) errors.push(`furniture "${f.id}": "type" must be a name`);
+    if (f.rotation != null && !isNum(f.rotation)) errors.push(`furniture "${f.id}": "rotation" must be a number of degrees`);
+    if (f.elevation != null && !(isNum(f.elevation) && f.elevation >= 0)) errors.push(`furniture "${f.id}": "elevation" must be zero or more`);
+    if (f.params != null && (typeof f.params !== 'object' || Array.isArray(f.params))) errors.push(`furniture "${f.id}": "params" must be an object`);
   }
 
   const anchors = [], anchored = new Set();

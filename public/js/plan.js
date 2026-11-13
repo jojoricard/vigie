@@ -100,6 +100,35 @@ export function openingFrame(plan, opening) {
   return { ...f, wall, start, end, x: mid[0], y: mid[1] };
 }
 
+/* ---------- Walls in the way ----------
+   Seen from its outside, a wall that has rooms on one side only hides what stands
+   along it: the far walls of the model show their rooms, the near ones their backs.
+   `wallInside` is the unit vector from such a wall toward its rooms, null for a wall
+   between two rooms, which stays up. A balcony counts when the wall has nothing
+   indoors on either side. `wallDrop` is how much of the wall comes down for a view,
+   from 0 (it stands) to 1: it follows the angle, so a wall sinks as the model turns. */
+export const LOW_WALL = 0.4;      // what is left of a wall in the way, in meters
+export function wallInside(plan, wall) {
+  const f = wallFrame(wall), reach = wall.thickness / 2 + 0.2;
+  const count = (side, indoors) => [0.1, 0.3, 0.5, 0.7, 0.9].filter((k) => {
+    const room = roomAt(plan, wall.a[0] + f.ux * f.length * k + f.nx * reach * side, wall.a[1] + f.uy * f.length * k + f.ny * reach * side);
+    return room && (room.kind === "outdoor") !== indoors;
+  }).length;
+  for (const indoors of [true, false]) {
+    const plus = count(1, indoors), minus = count(-1, indoors);
+    if (plus && minus) return null;
+    if (plus || minus) return [f.nx * (plus ? 1 : -1), f.ny * (plus ? 1 : -1)];
+  }
+  return null;
+}
+export function wallDrop(inside, azimuth, elevation) {
+  if (!inside) return 0;
+  const { back } = viewAxes(azimuth, elevation);
+  // how far behind the wall its rooms are for the eye: nothing from above, all of it from the front
+  const k = clamp((-(inside[0] * back[0] + inside[1] * back[1]) - 0.12) / 0.2, 0, 1);
+  return k * k * (3 - 2 * k);
+}
+
 // The wall closest to a point, to lay a wall unit along it.
 export function nearestWall(plan, x, y) {
   let best = null;
@@ -189,11 +218,11 @@ export const coverClosed = (state) => 1 - clamp(Number(state && state.position) 
    degrees from above, zoom 1 is the fitted frame. A view marked `auto` has no angle
    of its own: it takes the one that shows the home largest on that screen. */
 export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.85, maxZoom: 4 };
-export const FILL = 0.9;          // share of the picture the home takes
+export const FILL = 0.94;         // share of the picture the home takes: the pad under it reaches the edge
 const ROOM_FILL = 0.62;           // a framed room keeps its neighbors in sight
 const ISO = { azimuth: -35 * DEG, elevation: 50 * DEG };
-// the model may be seen a little more from the front and from higher, never less
-const ISO_AZIMUTHS = [-35, -25, -15].map((d) => d * DEG), ISO_ELEVATIONS = [50, 56, 62, 68].map((d) => d * DEG);
+// the model may be seen more from the front and from higher, never from lower
+const ISO_AZIMUTHS = [-35, -25, -15, -8, 0].map((d) => d * DEG), ISO_ELEVATIONS = [50, 56, 62, 68].map((d) => d * DEG);
 
 // The views offered: the whole plan as a model or from above, and one per room.
 export function presets(plan) {
@@ -213,17 +242,19 @@ function extent(points, azimuth, elevation) {
   return { right, up, minR, maxR, minU, maxU, width: maxR - minR, height: maxU - minU };
 }
 
-/* The angle of the model for a screen of the given aspect: of the few angles allowed,
-   the one at which the home covers most of the picture. A tall card looks from higher
-   and more from the front, a wide one keeps the usual three-quarter view, which also
-   wins when another angle is hardly better. */
+/* The angle of the model for a screen of the given aspect: of the angles allowed, the
+   one at which the home covers most of the picture. A wide card keeps the usual
+   three-quarter view, which also wins when another angle is hardly better. A tall card
+   looks from higher and more from the front, and if the home is longer one way than
+   the other, from the side that stands its long axis upright: a quarter turn, taken
+   only when it clearly shows the home larger. */
 export function modelAngle(plan, aspect) {
   const points = subjectPoints(plan, "plan");
   const cover = (azimuth, elevation) => { const e = extent(points, azimuth, elevation), fit = Math.max(e.height, e.width / aspect); return (e.height / fit) * (e.width / aspect / fit); };
   let best = ISO, most = cover(ISO.azimuth, ISO.elevation) * 1.04;
-  for (const azimuth of ISO_AZIMUTHS) for (const elevation of ISO_ELEVATIONS) {
-    const c = cover(azimuth, elevation);
-    if (c > most) { most = c; best = { azimuth, elevation }; }
+  for (const quarter of aspect < 1 ? [0, Math.PI / 2, -Math.PI / 2] : [0]) for (const azimuth of ISO_AZIMUTHS) for (const elevation of ISO_ELEVATIONS) {
+    const c = cover(azimuth + quarter, elevation) / (quarter ? 1.12 : 1);
+    if (c > most) { most = c; best = { azimuth: azimuth + quarter, elevation }; }
   }
   return best;
 }
@@ -286,6 +317,11 @@ export function sunlight(north, sun) {
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ESC[c]);
 const n = (v) => Number(v.toFixed(3));
+// The four corners of an item on the floor, turned by its rotation (degrees, clockwise on the plan).
+export function footprint(item) {
+  const [w, d] = item.size, a = (item.rotation || 0) * DEG, c = Math.cos(a), s = Math.sin(a);
+  return [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([x, y]) => [item.position[0] + x * c - y * s, item.position[1] + x * s + y * c]);
+}
 
 /* The plan from above as SVG, for a screen without WebGL or too narrow for the model.
    `placed` comes from placedDevices(). Options: `simple` drops furniture and names,
@@ -311,8 +347,8 @@ export function planSvg(plan, placed, { simple = false, room = null, temperature
   }
   if (!simple) {
     for (const f of plan.furniture || []) {
-      const [w, d] = f.size;
-      parts.push(`<rect class="pFurniture" x="${n(f.position[0] - w / 2)}" y="${n(f.position[1] - d / 2)}" width="${n(w)}" height="${n(d)}" rx="0.08"/>`);
+      if (f.elevation > CUT_HEIGHT) continue;    // hung above the cut: not seen from above either
+      parts.push(`<polygon class="pFurniture" points="${footprint(f).map((p) => `${n(p[0])},${n(p[1])}`).join(" ")}"/>`);
     }
   }
   for (const wall of plan.walls || []) {

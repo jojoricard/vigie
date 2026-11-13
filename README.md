@@ -121,7 +121,7 @@ Open `http://localhost:5252/api/v1/discovery` to get the `device` id of each lam
 
 With a floor plan, the tab opens on a model of the home: a lit lamp warms the floor of its room with its color, air conditioners show their mode and their target, shutters hang at their height, and a room with a sensor is tinted when it is cold or warm. The daylight follows the real sun when the plan says where north is. Press a room to zoom on it, a device to open its panel. Under 720 px wide, or without WebGL, the same plan is drawn flat.
 
-The plan is a JSON file of your own (rooms, walls, openings, and one anchor per device), described in [house/API.md](house/API.md#plan). **Keep it outside this folder**: it is the layout of your home, and it must not end up in a fork or a pull request. Point to it from `config.json`:
+The plan is a JSON file of your own (rooms, walls, openings, furniture picked from a library of types, and one anchor per device), described in [house/API.md](house/API.md#plan). **Keep it outside this folder**: it is the layout of your home, and it must not end up in a fork or a pull request. Point to it from `config.json`:
 
 ```json
 "house": { "planPath": "C:\\Users\\me\\Documents\\home\\plan.json" }
