@@ -10,7 +10,7 @@
 import { $, state, esc, load, cssColor } from "./core.js";
 import { moduleFor, placedDevices, planSvg } from "./plan.js";
 import { solarPosition } from "./sun.js";
-import { t, dec, nb, fmtDate } from "./i18n.js";
+import { t, dec, nb, fmtDate, fmtTime } from "./i18n.js";
 import { icon } from "./icons.js";
 
 const API = "/api/v1";
@@ -84,12 +84,24 @@ export function tileLayout(width, height, count, gap = 10) {
 const findDevice = (id) => rooms.flatMap((r) => r.devices).find((d) => d.id === id);
 const roomOf = (d) => rooms.find((r) => r.id === d.room);
 const heats = (d) => d.type === "climate" || d.type === "heater";
+// What makes a tile and a marker stand out: a lamp that is on, a blind that is up, a
+// cycle that runs, a boost. A water heater is always on, which says nothing.
+const active = (d) => d.type === "cover" ? d.state.position > 0 : d.type === "washer" ? d.state.run === "running" || d.state.run === "paused"
+  : d.type === "water" ? !!d.state.boost : !!d.state.on;
+// "1 h 05", "40 min"
+const duration = (min) => min == null ? "" : min >= 60 ? t("house.hours", Math.floor(min / 60), String(min % 60).padStart(2, "0")) : t("house.minutes", min);
+// A washer that has finished and waits to be emptied: what the overview and the briefing tell.
+export const cyclesDone = (list) => (list || []).flatMap((room) => room.devices.filter((d) => d.type === "washer" && d.state.reachable && d.state.run === "done").map((d) => ({ name: d.name, room: room.name })));
 
 export async function refreshHouse() {
   wire();
   const r = await load(`${API}/rooms`);
   // an answer older than a command still on its way would bring the old state back
   if (r && !inFlight) { rooms = r; state.house = { rooms }; }
+  // a finished cycle is told on the overview, with the warnings, until the machine is emptied
+  const done = cyclesDone(rooms);
+  $("houseAlerts").hidden = !done.length;
+  $("houseAlerts").innerHTML = done.map((c) => `<span class="pill note">${icon("washer")}${t("house.cycleDone", esc(c.name))}</span>`).join("");
   if (r && !scenes) [scenes, ambiances] = await Promise.all([load(`${API}/scenes`), load(`${API}/ambiances`)]).then((l) => l.map((x) => x || []));
   // asked once: the service answers 404 when it has no plan, and the card stays hidden
   if (r && plan === undefined) plan = (await load(`${API}/plan`)) || null;
@@ -178,6 +190,9 @@ function deviceIcon(d) {
   if (d.type === "light") return icon(/bandeau|ruban|strip|led/i.test(d.name) ? "strip" : "bulb");
   if (d.type === "climate") return icon(MODE_ICON[d.state.mode] || "snowflake");
   if (d.type === "cover") return icon("blind");
+  if (d.type === "water") return icon("shower");
+  if (d.type === "tv") return icon("tv");
+  if (d.type === "washer") return icon("washer");
   return icon(d.type === "heater" ? "flame" : "thermo");
 }
 // A scene has a name and nothing else: its icon is guessed from it.
@@ -191,7 +206,17 @@ function tileText(d) {
   if (d.type === "light") return [s.on && s.brightness != null ? `${s.brightness} %` : "", s.on ? t("house.lightOn") : t("house.lightOff")];
   if (d.type === "sensor") return [degrees(s.temperature), ""];
   if (d.type === "cover") return [s.position != null ? `${s.position} %` : "", s.position > 0 ? t("house.open") : t("house.closed")];
+  if (d.type === "water") return [s.showersLeft != null ? String(s.showersLeft) : s.temperature != null ? degrees(s.temperature) : "", [s.away ? t("house.away") : s.mode ? t(`opt.mode.${s.mode}`) : "", s.boost ? t("cap.boost") : "", s.showersLeft != null ? t("house.showersLeft", s.showersLeft) : ""].filter(Boolean).join(" · ")];
+  if (d.type === "tv") return ["", s.on ? s.appName || t("house.isOn") : t("house.isOff")];
+  if (d.type === "washer") return [s.run === "running" || s.run === "paused" ? duration(s.remainingMin) : "", washerWords(s)];
   return [degrees(s.setpoint), s.on ? (s.mode ? t(`opt.mode.${s.mode}`) : t("house.running")) : t("house.stopped")];
+}
+
+// "Rinsing", "Done", "Off": the step of the cycle when the machine names one we know.
+const PHASES = ["detecting", "running", "rinsing", "spinning", "drying", "soaking", "prewash", "cooling"];
+function washerWords(s) {
+  if (s.run === "running") return PHASES.includes(s.phase) ? t(`washer.phase.${s.phase}`) : t("washer.run.running");
+  return s.run ? t(`washer.run.${s.run}`) : "";
 }
 
 function tileHtml(d) {
@@ -206,8 +231,8 @@ function tileHtml(d) {
   const fill = d.type === "light" ? lampFill(s) : null;
   const [main, words] = tileText(d);
   const canToggle = !!d.capabilities.on;
-  const on = d.type === "cover" ? s.position > 0 : !!s.on;
-  const cls = ["tile", d.type, on ? "on" : canToggle || d.type === "cover" ? "off" : "", fill ? "lit" : "", error ? "failed" : ""].filter(Boolean).join(" ");
+  const on = active(d);
+  const cls = ["tile", d.type, on ? "on" : canToggle || ["cover", "washer", "water"].includes(d.type) ? "off" : "", fill ? "lit" : "", error ? "failed" : ""].filter(Boolean).join(" ");
   const mode = d.type === "climate" && s.on && s.mode ? ` data-mode="${esc(s.mode)}"` : "";
   return `<div class="${cls}" data-tile="${id}" data-device="${id}" data-room="${esc(d.room)}"${mode}${canToggle ? ` role="button" tabindex="0" aria-pressed="${!!s.on}"` : ""}${fill ? ` style="--lamp:${fill.color}"` : ""}>
     <span class="tileIcon">${deviceIcon(d)}</span>
@@ -272,6 +297,16 @@ function detailHtml(d) {
     out.push(field(t("field." + cap), `<div class="segmented">${caps[cap].options.map((v) =>
       `<button type="button" class="${v === s[cap] ? "on" : ""}" data-set="${cap}" data-value="${esc(v)}">${t(`opt.${cap}.${v}`)}</button>`).join("")}</div>`));
   }
+  // what a television offers has the names it gives: its inputs, its applications
+  for (const cap of ["source", "app"]) {
+    if (!caps[cap]) continue;
+    out.push(field(t("field." + cap), `<div class="chips">${caps[cap].options.map((v) =>
+      `<button type="button" class="chip${v === s[cap] ? " on" : ""}" data-set="${cap}" data-value="${esc(v)}">${esc((caps[cap].labels || {})[v] || v)}</button>`).join("")}</div>`));
+  }
+  if (caps.volume) out.push(slider(d, "volume", t("slider.volume"), s.volume ?? "–"));
+  if (caps.showers) out.push(slider(d, "showers", t("slider.showers"), s.showers ?? "–"));
+  if (caps.away) out.push(awayHtml(s));
+  if (caps.start) out.push(`<button type="button" class="bigAction" data-action="start">${icon("play")}<span>${t("house.start")}</span></button>`);
   if (caps.colorRgb) {
     const names = t("house.colors");
     out.push(field(t("field.color"), `<div class="swatchRow">${QUICK.map((v, i) =>
@@ -292,6 +327,14 @@ function detailHtml(d) {
   // What the device reports and nobody sets. The probe of an air conditioner is named
   // as such: it reads several degrees above the room.
   const facts = [
+    d.type === "water" && s.hotWater != null ? t("house.hotWater", Math.round(s.hotWater)) : null,
+    d.type === "water" && s.temperature != null ? t("house.waterTemp", dec(s.temperature, 0)) : null,
+    s.energyKwh != null ? t("house.energyTotal", nb(Math.round(s.energyKwh))) : null,
+    d.type === "washer" ? washerWords(s) : null,
+    d.type === "washer" && s.remainingMin != null ? t("house.remaining", duration(s.remainingMin)) : null,
+    d.type === "washer" && s.endsAt ? t("house.endsAt", fmtTime(new Date(s.endsAt))) : null,
+    d.type === "washer" && s.run !== "off" && !caps.start ? t("house.noRemoteStart") : null,
+    d.type === "tv" && s.appName ? esc(s.appName) : null,
     s.probeTemp != null ? t("house.probe", dec(s.probeTemp, 1)) : null,
     d.type === "heater" && s.temperature != null ? `${dec(s.temperature, 1)}°` : null,
     s.outdoorTemp != null ? t("house.outdoorUnit", dec(s.outdoorTemp, 1)) : null,
@@ -306,6 +349,27 @@ function detailHtml(d) {
     ${error ? `<div class="detailError">${esc(error)}</div>` : ""}
     ${out.join("")}
     ${facts.length ? `<div class="detailFacts">${facts.map((x) => `<span>${x}</span>`).join("")}</div>` : ""}`;
+}
+
+/* ---------- Absence ----------
+   A water heater that is told when the home is empty stops heating for nothing and is
+   warm again for the return. Two days: the one of the departure, the one of the return. */
+let awayDraft = null;   // { from, to } as the two fields hold them, while they are being filled
+const dayOf = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function awayHtml(s) {
+  const today = dayOf(Date.now()), draft = awayDraft || (s.away ? { from: dayOf(s.away.from), to: dayOf(s.away.to) } : { from: today, to: "" });
+  const now = s.away ? `<p class="awayNow">${s.away.pending ? t("house.awayFrom", fmtDate(s.away.from, { weekday: "short", day: "numeric", month: "short" })) + " · " : ""}${t("house.awayUntil", fmtDate(s.away.to, { weekday: "short", day: "numeric", month: "short" }))}</p>` : "";
+  return field(t("house.away"), `${now}<div class="awayRow">
+      <label><span>${t("house.leaving")}</span><input type="date" data-away="from" min="${today}" value="${esc(draft.from)}"></label>
+      <label><span>${t("house.back")}</span><input type="date" data-away="to" min="${esc(draft.from || today)}" value="${esc(draft.to)}"></label>
+    </div><div class="awayRow">
+      <button type="button" class="chip" data-away-set ${draft.from && draft.to && draft.to > draft.from ? "" : "disabled"}>${t("house.awaySet")}</button>
+      ${s.away ? `<button type="button" class="chip" data-away-end>${t("house.awayEnd")}</button>` : ""}</div>`);
+}
+// the day of the departure starts now when it is today, and the return is the morning of its day
+function awayPeriod(draft) {
+  const start = new Date(`${draft.from}T00:00:00`), back = new Date(`${draft.to}T00:00:00`);
+  return { from: new Date(Math.max(start.getTime(), Date.now())).toISOString(), to: back.toISOString() };
 }
 
 /* ---------- Weekly program ----------
@@ -476,12 +540,14 @@ function pinLabel(d) {
   const s = d.state, module = moduleFor(d);
   if (!s.reachable) return "";
   if (module === "sensor") return degrees(s.temperature);
+  if (d.type === "washer") return s.run === "running" ? duration(s.remainingMin) : "";
+  if (d.type === "water") return s.showersLeft != null ? String(s.showersLeft) : "";
   return (module === "climate" || module === "heater") && s.on && s.setpoint != null ? degrees(s.setpoint) : "";
 }
 /* A marker says what it is and how it is: a lit lamp is a dot of its color, an air
    conditioner takes the color of its mode, anything off is small and grey. */
 function pinOf(d, module) {
-  const s = d.state, on = module === "cover" ? s.position > 0 : !!s.on, text = pinLabel(d);
+  const s = d.state, on = active(d), text = pinLabel(d);
   const fill = module === "light" && s.reachable ? lampFill(s) : null;
   return {
     html: `${deviceIcon(d)}${text ? `<span class="num">${text}</span>` : ""}`,
@@ -548,7 +614,7 @@ function drawPlan() {
     planLoading = true;
     import("./plan3d.js").then(({ createPlan3d }) => {
       planLoading = false;
-      planView = createPlan3d(stage, plan, { css: cssColor, lampColor, pin: pinOf, roomLabel, sun: sunNow, onDevice: openDetail, onRoom: showPlan, onHover: point });
+      planView = createPlan3d(stage, plan, { css: cssColor, lampColor, pin: pinOf, roomLabel, sun: sunNow, onDevice: openDetail, onRoom: showPlan, onHover: point, onMoved: (moved) => { $("planRecenter").hidden = !moved; } });
       if (planView) planView.show(planShown);
       else noWebgl = true;      // no WebGL context: the flat view, for good
       render();
@@ -558,6 +624,11 @@ function drawPlan() {
   stage.setAttribute("aria-label", t("plan.label"));
   stage.title = flat ? "" : t("plan.hint");
   $("planViews").hidden = flat;
+  const recenter = $("planRecenter");
+  if (flat) recenter.hidden = true;
+  if (!recenter.firstChild) recenter.innerHTML = icon("center");
+  recenter.title = t("plan.recenter");
+  recenter.setAttribute("aria-label", t("plan.recenter"));
   $("planViews").innerHTML = Object.keys(VIEW_NAME).map((v) => `<button type="button" class="${planShown === v ? "on" : ""}" data-view="${v}">${VIEW_NAME[v]()}</button>`).join("");
   $("planRooms").innerHTML = namedRooms().map((p) => `<button type="button" class="chip${planShown === p.id ? " on" : ""}" data-room="${esc(p.id)}">${esc(p.name)}</button>`).join("");
   const ignored = (plan.warnings || []).length;
@@ -604,8 +675,8 @@ function fitHouse() {
 }
 
 let detailEl = null;
-function openDetail(id) { detailId = id; pickerOpen = false; draft = null; render(); detailEl.querySelector("[data-close]").focus(); }
-function closeDetail() { detailId = null; draft = null; render(); }
+function openDetail(id) { detailId = id; pickerOpen = false; draft = null; awayDraft = null; render(); detailEl.querySelector("[data-close]").focus(); }
+function closeDetail() { detailId = null; draft = null; awayDraft = null; render(); }
 
 function render() {
   drawPlan();
@@ -679,6 +750,7 @@ function wire() {
     if (scene) return runScene(scene.dataset.scene);
     const planBtn = e.target.closest("#planViews [data-view], #planRooms [data-room], .planFlat [data-room]");
     if (planBtn) return showPlan(planBtn.dataset.view || planBtn.dataset.room);
+    if (e.target.closest("#planRecenter")) return planView && planView.recenter();
     const flatPin = e.target.closest(".planFlat [data-device]");
     if (flatPin) return openDetail(flatPin.dataset.device);
     const more = e.target.closest("[data-more]");
@@ -714,10 +786,18 @@ function wire() {
     if ("color" in data) return command(detailId, { colorRgb: Number(data.color) });
     if ("ambiance" in data) return command(detailId, { ambiance: data.ambiance });
     if ("picker" in data) { pickerOpen = !pickerOpen; render(); }
+    if ("action" in data) return command(detailId, { [data.action]: true });
+    if ("awaySet" in data && awayDraft) { const away = awayPeriod(awayDraft); awayDraft = null; return command(detailId, { away }); }
+    if ("awayEnd" in data) { awayDraft = null; return command(detailId, { away: null }); }
   });
   // sliders send on release, not while dragging
   detailEl.addEventListener("change", (e) => {
     if ("progTime" in e.target.dataset && e.target.value) return programAction({ prog: "time" }, e.target.value);
+    if (e.target.dataset.away) {
+      const s = findDevice(detailId).state;
+      awayDraft = { ...(awayDraft || (s.away ? { from: dayOf(s.away.from), to: dayOf(s.away.to) } : { from: dayOf(Date.now()), to: "" })), [e.target.dataset.away]: e.target.value };
+      return render();
+    }
     if (e.target.dataset.range) command(detailId, { [e.target.dataset.range]: Number(e.target.value) });
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detailId) closeDetail(); });

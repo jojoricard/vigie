@@ -52,14 +52,17 @@
         "name": "Living room",
         "devices": [
           { "id": "living-lamp", "name": "Lamp", "type": "light", "driver": "govee-lan", "device": "00:00:5E:00:53:01:00:01" },
-          { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "daikin", "ip": "192.0.2.20" }
+          { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "daikin", "ip": "192.0.2.20" },
+          { "id": "living-tv", "name": "Television", "type": "tv", "driver": "lg-webos", "host": "192.0.2.30", "key": "", "mac": "00:00:5E:00:53:30" }
         ]
       },
       {
         "id": "bathroom",
         "name": "Bathroom",
         "devices": [
-          { "id": "towel-rail", "name": "Towel rail", "type": "heater", "driver": "cozytouch", "label": "Towel rail" }
+          { "id": "towel-rail", "name": "Towel rail", "type": "heater", "driver": "cozytouch", "label": "Towel rail" },
+          { "id": "water-heater", "name": "Hot water", "type": "water", "driver": "cozytouch", "deviceId": 0 },
+          { "id": "washer", "name": "Washing machine", "type": "washer", "driver": "lg-thinq", "deviceId": "" }
         ]
       }
     ],
@@ -73,13 +76,15 @@
         "name": "Leaving",
         "actions": [
           { "type": "light", "set": { "on": false } },
-          { "type": "climate", "set": { "on": false } }
+          { "type": "climate", "set": { "on": false } },
+          { "type": "tv", "set": { "on": false } }
         ]
       },
       { "id": "evening", "name": "Evening", "actions": [{ "device": "living-lamp", "set": { "ambiance": "warm" } }] }
     ],
     "govee": { "cloudFallback": false, "apiKey": "" },
-    "cozytouch": { "username": "", "password": "" }
+    "cozytouch": { "username": "", "password": "" },
+    "lgThinq": { "token": "", "country": "FR", "region": "eic" }
   },
   "tools": [
     {

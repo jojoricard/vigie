@@ -369,3 +369,68 @@ test('a niche may take only the top of a cabinet, a lamp may stand on an arch', 
   const desk = (legs) => furnitureParts(item('desk', { size: [2, 0.7, 0.75], params: { shape: 'L', legs } })).length;
   assert.equal(desk('panel'), 5, 'two tops and three panels');
 });
+
+test('a wall behind its rooms rises to show its windows whole, one in the way is cut under them', async () => {
+  const { wallHeight, wallTall, wallPieces, subjectPoints, CUT_HEIGHT, LOW_WALL, LIMITS } = await page('plan.js');
+  const DEG = Math.PI / 180;
+  const plan = {
+    rooms: [{ id: 'a', polygon: [[0, 0], [4, 0], [4, 3], [0, 3]] }, { id: 'b', polygon: [[4, 0], [8, 0], [8, 3], [4, 3]] }],
+    walls: [
+      { id: 'front', a: [0, 3.1], b: [8, 3.1], thickness: 0.2 }, { id: 'back', a: [0, -0.1], b: [8, -0.1], thickness: 0.2 },
+      { id: 'blank', a: [-0.1, 0], b: [-0.1, 3], thickness: 0.2 }, { id: 'between', a: [4, 0], b: [4, 3], thickness: 0.1 },
+    ],
+    openings: [
+      { id: 'w1', type: 'window', wall: 'back', offset: 1, width: 1.2, height: 1.2, sill: 1 },
+      { id: 'w2', type: 'window', wall: 'front', offset: 5, width: 1.2, height: 1.2, sill: 1 },
+      { id: 'd', type: 'door', wall: 'between', offset: 1, width: 0.8, height: 2 },
+    ],
+  };
+  const wall = (id) => plan.walls.find((w) => w.id === id);
+  const high = (id, azimuth, elevation) => +wallHeight(plan, wall(id), azimuth * DEG, elevation * DEG).toFixed(3);
+  assert.equal(+wallTall(plan, wall('back')).toFixed(3), 2.3, 'the head of its window and a little wall above');
+  assert.equal(wallTall(plan, wall('blank')), CUT_HEIGHT, 'a wall without a window has nothing to show higher');
+  // from the front: the back wall whole, the front one low, the others at the cut
+  assert.deepEqual(['back', 'front', 'blank', 'between'].map((id) => high(id, 0, 68)), [2.3, LOW_WALL, CUT_HEIGHT, CUT_HEIGHT]);
+  // turned half round, they trade places
+  assert.deepEqual(['back', 'front'].map((id) => high(id, 180, 68)), [LOW_WALL, 2.3]);
+  // from above every wall is at the cut: a window is the strip of glass of a drawn plan
+  assert.deepEqual(['back', 'front', 'blank'].map((id) => +wallHeight(plan, wall(id), 0, LIMITS.maxElevation).toFixed(2)), [CUT_HEIGHT, CUT_HEIGHT, CUT_HEIGHT]);
+  // the pieces of a wall follow the height asked: glass from the sill to the head, wall above
+  const pieces = wallPieces(plan, wall('back'), 2.3).filter((p) => p.from === 1);
+  assert.deepEqual(pieces.map((p) => [p.bottom, p.top]), [[0, 1], [2.2, 2.3]]);
+  // the frame of a view holds the walls as that view cuts them
+  const top = (azimuth) => Math.max(...subjectPoints(plan, 'plan', azimuth * DEG, 68 * DEG).filter((p) => p[1] < 0).map((p) => p[2]));
+  assert.deepEqual([top(0), top(180)].map((v) => +v.toFixed(2)), [2.3, LOW_WALL]);
+});
+
+test('sliding and zooming by hand: the point under the pointer stays, the home is never lost', async () => {
+  const { groundShift, panBy, zoomAt, holdView, frameView, viewAxes, LIMITS } = await page('plan.js');
+  const DEG = Math.PI / 180;
+  const plan = { rooms: [{ id: 'a', polygon: [[0, 0], [6, 0], [6, 4], [0, 4]] }], walls: [] };
+  const view = { subject: 'plan', azimuth: -35 * DEG, elevation: 50 * DEG, zoom: 1 };
+  // where a point of the floor lands in the picture, in meters from its middle
+  const seen = (v, [x, y]) => {
+    const f = frameView(plan, v, 1.5), a = viewAxes(f.azimuth, f.elevation), d = [x - f.center[0], y - f.center[1], -f.center[2]];
+    return [0, 1].map((i) => d[0] * a[i ? 'up' : 'right'][0] + d[1] * a[i ? 'up' : 'right'][1] + d[2] * a[i ? 'up' : 'right'][2]);
+  };
+  const close = (a, b, why) => assert.ok(a.every((v, i) => Math.abs(v - b[i]) < 1e-9), `${why}: ${a} vs ${b}`);
+  // a move over the ground that slides the picture by one meter right, then one up
+  for (const [right, up] of [[1, 0], [0, 1], [0.4, -0.7]]) {
+    const [dx, dy] = groundShift(view.azimuth, view.elevation, right, up), a = viewAxes(view.azimuth, view.elevation);
+    close([dx * a.right[0] + dy * a.right[1], dx * a.up[0] + dy * a.up[1]], [right, up], 'ground shift');
+  }
+  // the floor follows the hand
+  const before = seen(view, [2, 1]), slid = panBy(plan, view, 0.5, -0.3);
+  close(seen(slid, [2, 1]), [before[0] + 0.5, before[1] - 0.3], 'slide');
+  // zooming on a point of the picture leaves what is there where it is
+  const at = seen(view, [5, 3]), zoomed = zoomAt(plan, view, 2, at[0], at[1]);
+  assert.equal(zoomed.zoom, 2);
+  // the picture shows half the meters: the same place on screen is half as far from the middle
+  close(seen(zoomed, [5, 3]).map((v) => v * 2), at, 'zoom on the pointer');
+  assert.equal(frameView(plan, zoomed, 1.5).height, frameView(plan, view, 1.5).height / 2);
+  // limits: the zoom, the floor, and a slide that stops at the edge of the home
+  assert.equal(zoomAt(plan, view, 100, 0, 0).zoom, LIMITS.maxZoom);
+  assert.equal(holdView(plan, { ...view, elevation: -1 }).elevation, LIMITS.minElevation);
+  assert.deepEqual(holdView(plan, { ...view, pan: [50, -50] }).pan, [3, -2]);
+  assert.deepEqual(panBy(plan, panBy(plan, view, 1000, 1000), -1000, -1000).pan.map((v) => Math.abs(v)), [3, 2], 'held at the edge both ways');
+});

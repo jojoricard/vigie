@@ -93,7 +93,9 @@ The House tab talks to a small service of its own (`house/`), started inside the
 
 - **Govee lights** over the local network, without key or cloud. Switch on **LAN Control** once per lamp in Govee Home (the lamp, then its settings).
 - **Daikin** air conditioners through their Wi-Fi adapter, also local: mode, fan, vanes, target, powerful and eco modes, energy used, and the weekly program stored in the unit, which keeps running with the PC off. Reserve their IPs on your router.
-- **Atlantic, Thermor and Sauter** heaters through the Cozytouch cloud, once `house.cozytouch` holds the account's email and password.
+- **Atlantic, Thermor and Sauter** heaters and water heaters through the Cozytouch cloud, once `house.cozytouch` holds the account's email and password: mode, hot water asked for and left in showers, boost, absence of the home.
+- **LG televisions** over the local network, after one pairing on the screen (`node house/pair-tv.js <address>`): on and off, volume, input, application. A scene can turn the television on or off.
+- **LG washing machines** through the official ThinQ Connect API, once `house.lgThinq` holds a personal access token: state, time left, and the end of the cycle on the overview and in the briefing.
 
 Describe your home under `house` in `config.json`, by room:
 

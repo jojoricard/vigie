@@ -125,7 +125,11 @@ function houseContext(cfg) {
   const units = ((state.house && state.house.rooms) || []).flatMap((room) => room.devices
     .filter((d) => d.type === "climate" && against(d.state))
     .map((d) => ({ room: room.name, mode: t("opt.mode." + d.state.mode), running: true })));
-  return units.length ? { outdoorTemp: Math.round(outdoor), airConditioners: units } : null;
+  // a machine that has finished, or will within the hour: worth a word, a running one is not
+  const laundry = ((state.house && state.house.rooms) || []).flatMap((room) => room.devices
+    .filter((d) => d.type === "washer" && d.state.reachable && (d.state.run === "done" || (d.state.run === "running" && d.state.remainingMin != null && d.state.remainingMin <= 60)))
+    .map((d) => d.state.run === "done" ? { name: d.name, finished: true } : { name: d.name, minutesLeft: d.state.remainingMin }));
+  return compact({ ...(units.length ? { outdoorTemp: Math.round(outdoor), airConditioners: units } : {}), laundry });
 }
 
 // Only a fuel whose cheapest price moved by fuelDeltaEur or more since the reference day.

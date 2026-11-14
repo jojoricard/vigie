@@ -1,7 +1,12 @@
 /* Atlantic, Thermor and Sauter heaters through the Cozytouch cloud (Overkiz platform),
  * after the open-source pyoverkiz library and Home Assistant's overkiz integration.
  * Written for an electric towel dryer. Only created when house.cozytouch is configured.
- * Config of a device: { driver: "cozytouch", deviceURL: "io://…#1" } or { label }. */
+ * Config of a device: { driver: "cozytouch", deviceURL: "io://…#1" } or { label }.
+ *
+ * Appliances with their own Wi-Fi, without a bridge, are not on Overkiz: the same
+ * account reads them on Atlantic's newer API, after the open-source gduteil/cozytouch
+ * integration. A device there has a number, and its state is a list of numbered
+ * capabilities. Written for a water heater: { driver: "cozytouch", deviceId: 123456 }. */
 const { DeviceError, request, parseJson, clamp } = require('../util');
 
 const ATLANTIC_API = 'https://apis.groupe-atlantic.com';
@@ -78,7 +83,73 @@ function commandsFor(changes, states) {
   return out;
 }
 
-function create({ username, password, fetch: fetchImpl = fetch, now = Date.now }) {
+/* ---- The newer cloud: a water heater ----
+ * Capability numbers as the reference integration names them: 87 the mode, 165 the
+ * boost, 227 or 152 the absence with its window in 226 or 222 as "[start,end]" in
+ * seconds, 292 the showers asked for and 293 those left, 271 the share of hot water,
+ * 265 the temperature at mid-height, 231 the setpoint, 59 the energy counter in Wh. */
+const WATER = { mode: 87, boost: 165, away: [227, 152], window: [226, 222], showers: 292, showersLeft: 293, hotWater: 271, temperature: 265, setpoint: 231, energy: 59 };
+const WATER_MODE = { 0: 'manual', 3: 'eco', 4: 'schedule' };
+const WATER_MODE_VALUE = { manual: '0', eco: '3', schedule: '4' };
+// What goes back with the absence when it is written on the account, and nothing else.
+const SETUP_FIELDS = ['address', 'area', 'currency', 'mainHeatingEnergy', 'mainDHWEnergy', 'name', 'numberOfPersons', 'numberOfRooms', 'setupBuildingDate', 'type'];
+const SHOWERS = { min: 1, max: 6, step: 1 };
+const EXECUTION_DONE = 3, EXECUTION_POLLS = 6;
+
+const capabilityValues = (dev) => Object.fromEntries((dev.capabilities || []).map((c) => [c.capabilityId, c.value]));
+const present = (values, ids) => ids.find((id) => values[id] != null);
+
+function normalizeWater(values) {
+  const num = (id) => values[id] == null || values[id] === '' || !Number.isFinite(Number(values[id])) ? null : Number(values[id]);
+  const away = present(values, WATER.away), window = present(values, WATER.window);
+  const out = {
+    reachable: true, on: true, mode: WATER_MODE[values[WATER.mode]] || null,
+    showers: num(WATER.showers), showersLeft: num(WATER.showersLeft), hotWater: num(WATER.hotWater),
+    temperature: num(WATER.temperature), setpoint: num(WATER.setpoint),
+  };
+  if (values[WATER.boost] != null) out.boost = ['1', 'true'].includes(String(values[WATER.boost]));
+  if (away != null) {
+    const [from, to] = String(values[window] ?? '').replace(/[[\]\s]/g, '').split(',').map(Number);
+    // "2" is an absence set for later: it counts, and says so
+    out.away = String(values[away]) !== '0' && from > 0 && to > 0
+      ? { from: new Date(from * 1000).toISOString(), to: new Date(to * 1000).toISOString(), pending: String(values[away]) === '2' } : null;
+  }
+  if (num(WATER.energy) != null) out.energyKwh = Math.round(num(WATER.energy) / 100) / 10;
+  return out;
+}
+
+function waterCapabilities(values) {
+  const caps = {};
+  if (values[WATER.mode] != null) caps.mode = { options: ['manual', 'eco', ...(String(values[WATER.mode]) === '4' ? ['schedule'] : [])] };
+  if (values[WATER.showers] != null) caps.showers = { ...SHOWERS };
+  if (values[WATER.boost] != null) caps.boost = { type: 'boolean' };
+  if (present(values, WATER.away) != null) caps.away = { type: 'period' };
+  return caps;
+}
+
+// Changes -> capability writes, in order. `away` is { from, to } as dates, or null to end it.
+function waterWrites(changes, values, at = Date.now()) {
+  const out = [];
+  if (changes.mode != null) out.push([WATER.mode, WATER_MODE_VALUE[changes.mode]]);
+  if (changes.showers != null) out.push([WATER.showers, String(Math.round(changes.showers))]);
+  if (changes.boost != null) out.push([WATER.boost, changes.boost ? '1' : '0']);
+  if (changes.away !== undefined) {
+    const period = awayPeriod(changes.away);
+    out.push([present(values, WATER.window), period ? `[${period[0]},${period[1]}]` : '[0,0]']);
+    out.push([present(values, WATER.away), !period ? '0' : period[0] * 1000 > at ? '2' : '1']);
+  }
+  return out.filter(([id]) => id != null);
+}
+
+// { from, to } -> [start, end] in seconds, null for no absence. A window that ends before it starts is refused.
+function awayPeriod(away) {
+  if (away == null) return null;
+  const from = Math.floor(Date.parse(away.from) / 1000), to = Math.floor(Date.parse(away.to) / 1000);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) throw new RangeError('"away" needs a "from" and a later "to"');
+  return [from, to];
+}
+
+function create({ username, password, fetch: fetchImpl = fetch, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   let cookie = null;
   let setup = { at: -Infinity, devices: [] };
   const statesCache = new Map();   // deviceURL -> { at, values }
@@ -116,6 +187,64 @@ function create({ username, password, fetch: fetchImpl = fetch, now = Date.now }
     return r.text ? parseJson('Cozytouch', r.text) : null;
   }
 
+  /* The newer cloud: one token, one call that returns every device with its values. */
+  let bearer = { token: null, until: 0 }, home = { at: -Infinity, setup: null };
+  async function newer(method, path, body) {
+    if (!bearer.token || now() >= bearer.until) {
+      const t = await request('Cozytouch', `${ATLANTIC_API}/users/token`, {
+        method: 'POST', headers: { ...FORM, authorization: `Basic ${CLIENT_ID}` },
+        body: form({ grant_type: 'password', scope: 'openid', username: `GA-PRIVATEPERSON/${username}`, password }),
+      }, fetchImpl);
+      const token = parseJson('Cozytouch', t.text);
+      if (token.error === 'invalid_grant') throw new DeviceError('Cozytouch: wrong email or password');
+      if (!token.access_token) throw new DeviceError(`Cozytouch: no token (HTTP ${t.status})`);
+      bearer = { token: token.access_token, until: now() + ((token.expires_in || 3600) - 60) * 1000 };
+    }
+    const r = await request('Cozytouch', `${ATLANTIC_API}/magellan/${path}`, {
+      method, headers: { authorization: `Bearer ${bearer.token}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    }, fetchImpl);
+    if (r.status === 401) bearer.token = null;
+    if (!r.ok) throw new DeviceError(`Cozytouch: HTTP ${r.status} on ${path.split('/')[0]}`);
+    return r.text ? parseJson('Cozytouch', r.text) : null;
+  }
+  async function homeSetup() {
+    if (now() - home.at > STATES_TTL_MS) {
+      const list = await newer('GET', 'cozytouch/setupviewv2');
+      if (!Array.isArray(list) || !list.length) throw new DeviceError('Cozytouch: no home on the account');
+      home = { at: now(), setup: list[0] };
+    }
+    return home.setup;
+  }
+  async function findNewer(device) {
+    const dev = ((await homeSetup()).devices || []).find((d) => String(d.deviceId) === String(device.deviceId));
+    if (!dev) throw new DeviceError(`${device.name}: not found in the Cozytouch account`);
+    return dev;
+  }
+  // A write is an execution on Atlantic's side: it is done once it says so.
+  async function write(deviceId, capabilityId, value) {
+    const id = await newer('POST', 'executions/writecapability', { capabilityId, deviceId, value });
+    for (let i = 0; i < EXECUTION_POLLS; i++) {
+      const execution = await newer('GET', `executions/${encodeURIComponent(id)}`);
+      if (execution && execution.state === EXECUTION_DONE) return;
+      if (execution && execution.state > EXECUTION_DONE) throw new DeviceError(`Cozytouch: the command was refused (state ${execution.state})`);
+      await sleep(1000);
+    }
+    throw new DeviceError('Cozytouch: the command did not complete');
+  }
+  async function setNewer(device, changes) {
+    const dev = await findNewer(device), setup = await homeSetup();
+    if (changes.away !== undefined) {
+      // the absence belongs to the home: the account takes it first, then the heater mirrors it
+      const period = awayPeriod(changes.away);
+      await newer('PUT', `v2/setups/${encodeURIComponent(setup.id)}`, {
+        ...Object.fromEntries(SETUP_FIELDS.filter((k) => k in setup).map((k) => [k, setup[k]])),
+        absence: period ? { startDate: period[0], endDate: period[1] } : {},
+      });
+    }
+    for (const [capabilityId, value] of waterWrites(changes, capabilityValues(dev), now())) await write(dev.deviceId, capabilityId, value);
+    home.at = -Infinity;
+  }
+
   async function devices() {
     if (now() - setup.at > 5 * 60 * 1000) setup = { at: now(), devices: (await api('GET', 'setup')).devices || [] };
     return setup.devices;
@@ -135,6 +264,7 @@ function create({ username, password, fetch: fetchImpl = fetch, now = Date.now }
   }
 
   async function state(device) {
+    if (device.deviceId != null) return normalizeWater(capabilityValues(await findNewer(device)));
     const dev = await find(device);
     const sensorURL = dev.deviceURL.replace(/#\d+$/, '#' + SENSOR_INDEX);
     const hasSensor = sensorURL !== dev.deviceURL && (await devices()).some((d) => d.deviceURL === sensorURL);
@@ -146,6 +276,7 @@ function create({ username, password, fetch: fetchImpl = fetch, now = Date.now }
   }
 
   async function set(device, changes) {
+    if (device.deviceId != null) return setNewer(device, changes);
     const dev = await find(device);
     const commands = commandsFor(changes, await states(dev.deviceURL));
     if (!commands.length) return;
@@ -153,12 +284,21 @@ function create({ username, password, fetch: fetchImpl = fetch, now = Date.now }
     statesCache.delete(dev.deviceURL);
   }
 
-  const capabilities = async (device) => capabilitiesOf(await find(device));
+  const capabilities = async (device) => device.deviceId != null ? waterCapabilities(capabilityValues(await findNewer(device))) : capabilitiesOf(await find(device));
 
-  // Every device of the account, to fill the config.
-  const list = async () => (await devices()).map((d) => ({ driver: 'cozytouch', deviceURL: d.deviceURL, label: d.label, widget: d.widget || d.controllableName }));
+  // Every device of the account, on both clouds, to fill the config. An account may
+  // have nothing on one of them: that one is then left out, not an error.
+  const quiet = (p) => p.catch((e) => { if (!(e instanceof DeviceError)) throw e; return null; });
+  async function list() {
+    const [old, recent] = await Promise.all([quiet(devices()), quiet(homeSetup())]);
+    if (!old && !recent) await devices();     // both failed: say why
+    return [
+      ...(old || []).map((d) => ({ driver: 'cozytouch', deviceURL: d.deviceURL, label: d.label, widget: d.widget || d.controllableName })),
+      ...((recent && recent.devices) || []).map((d) => ({ driver: 'cozytouch', deviceId: d.deviceId, label: d.name, model: d.modelId, capabilities: (d.capabilities || []).map((c) => c.capabilityId) })),
+    ];
+  }
 
   return { capabilities, state, set, list };
 }
 
-module.exports = { create, normalize, capabilitiesOf, commandsFor };
+module.exports = { create, normalize, capabilitiesOf, commandsFor, normalizeWater, waterCapabilities, waterWrites, awayPeriod };

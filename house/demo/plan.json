@@ -71,7 +71,9 @@
     {"id": "f-kitchen-table", "room": "kitchen", "type": "table", "position": [6.2, 6.9], "size": [0.8, 0.8, 0.9], "params": {"top": "white", "legs": "chrome", "pedestal": true}},
     {"id": "f-stool-1", "room": "kitchen", "type": "chair", "position": [5.75, 6.9], "size": [0.36, 0.36, 0.75], "rotation": 270, "params": {"style": "stool", "color": "oak", "legs": "chrome"}},
     {"id": "f-stool-2", "room": "kitchen", "type": "chair", "position": [6.65, 6.9], "size": [0.36, 0.36, 0.75], "rotation": 90, "params": {"style": "stool", "color": "oak", "legs": "chrome"}},
-    {"id": "f-balcony-plant", "room": "balcony", "type": "plant", "position": [4.3, 9.1], "size": [0.4, 0.4, 0.9]}
+    {"id": "f-balcony-plant", "room": "balcony", "type": "plant", "position": [4.3, 9.1], "size": [0.4, 0.4, 0.9]},
+    {"id": "f-water-heater", "room": "kitchen", "type": "box", "position": [5.5, 7.82], "size": [0.5, 0.3, 0.9], "rotation": 180, "elevation": 1.0, "params": {"color": "white"}},
+    {"id": "f-washer", "room": "bathroom", "type": "appliance", "position": [4.1, 2.66], "size": [0.6, 0.6, 0.86], "rotation": 180, "params": {"style": "washer"}}
   ],
   "anchors": [
     {"deviceId": "living-lamp", "position": [2.6, 6.1, 2.30], "mount": "ceiling"},
@@ -85,6 +87,9 @@
     {"deviceId": "office-lamp", "position": [7.2, 0.4, 1.10], "mount": "furniture"},
     {"deviceId": "office-heater", "position": [5.95, 1.6, 0.40], "mount": "wall"},
     {"deviceId": "bathroom-towel-rail", "position": [3.8, 1.8, 1.00], "mount": "wall"},
-    {"deviceId": "kitchen-lamp", "position": [6.9, 6.0, 2.30], "mount": "ceiling"}
+    {"deviceId": "kitchen-lamp", "position": [6.9, 6.0, 2.30], "mount": "ceiling"},
+    {"deviceId": "living-tv", "position": [4.98, 5.3, 1.00], "mount": "furniture"},
+    {"deviceId": "kitchen-water", "position": [5.5, 7.7, 1.50], "mount": "wall"},
+    {"deviceId": "bathroom-washer", "position": [4.1, 2.65, 0.90], "mount": "floor"}
   ]
 }

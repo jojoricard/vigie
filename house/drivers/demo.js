@@ -7,6 +7,9 @@ const CAPS = {
   heater: { on: { type: 'boolean' }, mode: { options: ['off', 'manual', 'schedule'] }, setpoint: { min: 7, max: 28, step: 0.5 } },
   cover: { position: { min: 0, max: 100, step: 5 } },
   sensor: {},
+  water: { mode: { options: ['manual', 'eco'] }, showers: { min: 1, max: 6, step: 1 }, boost: { type: 'boolean' }, away: { type: 'period' } },
+  tv: { on: { type: 'boolean' }, volume: { min: 0, max: 100, step: 1 }, muted: { type: 'boolean' }, source: { options: ['antenna', 'hdmi1', 'hdmi2'], labels: { antenna: 'Antenna', hdmi1: 'Console', hdmi2: 'Player' } } },
+  washer: {},
 };
 
 function create() {

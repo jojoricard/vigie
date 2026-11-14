@@ -31,7 +31,7 @@ test('the demo plan follows the schema and every anchor finds its device', () =>
   const { errors, warnings, plan } = validate(demoPlan(), demoDevices);
   assert.deepEqual(errors, []);
   assert.deepEqual(warnings, []);
-  assert.equal(plan.anchors.length, 12);
+  assert.equal(plan.anchors.length, 15);
   // every room of the demo config is drawn
   for (const room of demoConfig.rooms) assert.ok(plan.rooms.some((r) => r.id === room.id), `room ${room.id} is in the plan`);
 });

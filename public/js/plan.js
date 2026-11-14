@@ -100,14 +100,18 @@ export function openingFrame(plan, opening) {
   return { ...f, wall, start, end, x: mid[0], y: mid[1] };
 }
 
-/* ---------- Walls in the way ----------
-   Seen from its outside, a wall that has rooms on one side only hides what stands
-   along it: the far walls of the model show their rooms, the near ones their backs.
-   `wallInside` is the unit vector from such a wall toward its rooms, null for a wall
-   between two rooms, which stays up. A balcony counts when the wall has nothing
-   indoors on either side. `wallDrop` is how much of the wall comes down for a view,
-   from 0 (it stands) to 1: it follows the angle, so a wall sinks as the model turns. */
+/* ---------- Walls and the eye ----------
+   A wall with rooms on one side only is seen either from its rooms or from its back.
+   From its back it hides what stands along it, so it comes down. From its rooms it
+   hides nothing, so it rises to show its windows whole: on a wall cut at 1.25 m a
+   window that starts at 1 m is a strip of glass. A wall between two rooms keeps the
+   cut. Openings are cut where their wall is, never moved.
+   `wallInside` is the unit vector from such a wall toward its rooms (null between two
+   rooms; a balcony counts when the wall has nothing indoors on either side),
+   `wallDrop` how much of it comes down for a view, from 0 to 1, and `wallHeight` where
+   it is cut: it follows the angle, so a wall sinks or rises as the model turns. */
 export const LOW_WALL = 0.4;      // what is left of a wall in the way, in meters
+const HEAD_ROOM = 0.1;            // wall kept above the highest window
 export function wallInside(plan, wall) {
   const f = wallFrame(wall), reach = wall.thickness / 2 + 0.2;
   const count = (side, indoors) => [0.1, 0.3, 0.5, 0.7, 0.9].filter((k) => {
@@ -127,6 +131,24 @@ export function wallDrop(inside, azimuth, elevation) {
   // how far behind the wall its rooms are for the eye: nothing from above, all of it from the front
   const k = clamp((-(inside[0] * back[0] + inside[1] * back[1]) - 0.12) / 0.2, 0, 1);
   return k * k * (3 - 2 * k);
+}
+// The height a wall needs to show its windows whole, at least the cut.
+export function wallTall(plan, wall) {
+  const heads = (plan.openings || []).filter((o) => o.wall === wall.id && (o.type === "window" || o.type === "french-window")).map((o) => (o.sill || 0) + o.height + HEAD_ROOM);
+  return Math.max(CUT_HEIGHT, ...heads);
+}
+const sides = new WeakMap();      // the side of a wall does not change: worked out once per plan
+function insideOf(plan, wall) {
+  if (!sides.has(plan)) sides.set(plan, new Map());
+  const known = sides.get(plan);
+  if (!known.has(wall)) known.set(wall, wallInside(plan, wall));
+  return known.get(wall);
+}
+export function wallHeight(plan, wall, azimuth, elevation) {
+  const inside = insideOf(plan, wall);
+  if (!inside) return CUT_HEIGHT;
+  const rise = wallDrop([-inside[0], -inside[1]], azimuth, elevation);
+  return CUT_HEIGHT + rise * (wallTall(plan, wall) - CUT_HEIGHT) - wallDrop(inside, azimuth, elevation) * (CUT_HEIGHT - LOW_WALL);
 }
 
 // The wall closest to a point, to lay a wall unit along it.
@@ -161,13 +183,16 @@ export function openEdges(plan, room) {
 }
 
 /* ---------- Devices ---------- */
-export const MODULES = ["light", "climate", "heater", "cover", "sensor"];
+export const MODULES = ["light", "climate", "heater", "cover", "sensor", "appliance"];
+// what stands in a room and is neither light nor heat: a marker where it is, nothing drawn
+const APPLIANCES = ["water", "tv", "washer"];
 
 /* The drawing module of a device: its type when the plan knows it, otherwise what its
    capabilities say it is. A new type needs a new module, nothing else. */
 export function moduleFor(device) {
   if (!device) return null;
   if (MODULES.includes(device.type)) return device.type;
+  if (APPLIANCES.includes(device.type)) return "appliance";
   const caps = device.capabilities || {}, state = device.state || {};
   if (caps.position) return "cover";
   if (caps.brightness || caps.colorRgb || caps.colorTempK) return "light";
@@ -217,7 +242,7 @@ export const coverClosed = (state) => 1 - clamp(Number(state && state.position) 
    angle and the size of the card. azimuth turns around the vertical, elevation is 90
    degrees from above, zoom 1 is the fitted frame. A view marked `auto` has no angle
    of its own: it takes the one that shows the home largest on that screen. */
-export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.85, maxZoom: 4 };
+export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.85, maxZoom: 6 };
 export const FILL = 0.94;         // share of the picture the home takes: the pad under it reaches the edge
 const ROOM_FILL = 0.62;           // a framed room keeps its neighbors in sight
 const ISO = { azimuth: -35 * DEG, elevation: 50 * DEG };
@@ -249,8 +274,7 @@ function extent(points, azimuth, elevation) {
    the other, from the side that stands its long axis upright: a quarter turn, taken
    only when it clearly shows the home larger. */
 export function modelAngle(plan, aspect) {
-  const points = subjectPoints(plan, "plan");
-  const cover = (azimuth, elevation) => { const e = extent(points, azimuth, elevation), fit = Math.max(e.height, e.width / aspect); return (e.height / fit) * (e.width / aspect / fit); };
+  const cover = (azimuth, elevation) => { const e = extent(subjectPoints(plan, "plan", azimuth, elevation), azimuth, elevation), fit = Math.max(e.height, e.width / aspect); return (e.height / fit) * (e.width / aspect / fit); };
   let best = ISO, most = cover(ISO.azimuth, ISO.elevation) * 1.04;
   for (const quarter of aspect < 1 ? [0, Math.PI / 2, -Math.PI / 2] : [0]) for (const azimuth of ISO_AZIMUTHS) for (const elevation of ISO_ELEVATIONS) {
     const c = cover(azimuth + quarter, elevation) / (quarter ? 1.12 : 1);
@@ -270,25 +294,56 @@ export function viewAxes(azimuth, elevation) {
   return { right: [ca, -sa, 0], up: [-se * sa, -se * ca, ce], back: [sa * ce, ca * ce, se] };
 }
 
-// What a view has to hold: the corners of the home, or of one room, floor and cut walls.
-export function subjectPoints(plan, subject) {
+// What a view has to hold: the corners of the home, or of one room, floor and walls as that view cuts them.
+export function subjectPoints(plan, subject, azimuth, elevation) {
   const room = plan.rooms.find((r) => r.id === subject);
-  const flat = room ? room.polygon : [...plan.rooms.flatMap((r) => r.polygon), ...(plan.walls || []).flatMap((w) => [w.a, w.b])];
-  return flat.flatMap(([x, y]) => [[x, y, 0], [x, y, CUT_HEIGHT]]);
+  if (room) return room.polygon.flatMap(([x, y]) => [[x, y, 0], [x, y, CUT_HEIGHT]]);
+  const points = plan.rooms.flatMap((r) => r.polygon.map(([x, y]) => [x, y, 0]));
+  for (const w of plan.walls || []) {
+    const h = azimuth == null ? CUT_HEIGHT : wallHeight(plan, w, azimuth, elevation);
+    for (const [x, y] of [w.a, w.b]) points.push([x, y, 0], [x, y, h]);
+  }
+  return points;
 }
 
 /* The frame of a view on a screen of the given aspect (width / height): `center` is the
-   point looked at, `height` the meters the picture shows from bottom to top. */
+   point looked at, `height` the meters the picture shows from bottom to top. `pan` moves
+   that point over the ground, in meters of the plan. */
 export function frameView(plan, view, aspect) {
   const { azimuth, elevation } = view.auto ? modelAngle(plan, aspect) : view;
-  const e = extent(subjectPoints(plan, view.subject), azimuth, elevation);
-  const cr = (e.minR + e.maxR) / 2, cu = (e.minU + e.maxU) / 2;
+  const e = extent(subjectPoints(plan, view.subject, azimuth, elevation), azimuth, elevation);
+  const cr = (e.minR + e.maxR) / 2, cu = (e.minU + e.maxU) / 2, pan = view.pan || [0, 0];
   const fill = plan.rooms.some((r) => r.id === view.subject) ? ROOM_FILL : FILL;
   return {
-    center: [0, 1, 2].map((i) => cr * e.right[i] + cu * e.up[i]),
+    center: [0, 1, 2].map((i) => cr * e.right[i] + cu * e.up[i] + (pan[i] || 0)),
     height: Math.max(e.height, e.width / aspect) / fill / (view.zoom || 1),
     azimuth, elevation,
   };
+}
+
+/* ---------- Moving by hand ----------
+   `groundShift` is the move over the ground that slides the picture by (right, up)
+   meters. `panBy` slides a view that way, `zoomAt` zooms it by k while the point at
+   (right, up) meters from the middle of the picture stays under the pointer.
+   `holdView` keeps a view within its limits: never under the floor, never so far
+   that the home leaves the picture. */
+export function groundShift(azimuth, elevation, right, up) {
+  const a = viewAxes(azimuth, elevation), flat = a.up[0] ** 2 + a.up[1] ** 2 || 1e-9;
+  return [a.right[0] * right + a.up[0] * up / flat, a.right[1] * right + a.up[1] * up / flat];
+}
+export function holdView(plan, view) {
+  const b = bounds(plan), pan = view.pan || [0, 0];
+  const reachX = (b.maxX - b.minX) / 2, reachY = (b.maxY - b.minY) / 2;
+  return { ...clampView(view), pan: [clamp(pan[0], -reachX, reachX), clamp(pan[1], -reachY, reachY)] };
+}
+export function panBy(plan, view, right, up) {
+  const [dx, dy] = groundShift(view.azimuth, view.elevation, right, up), pan = view.pan || [0, 0];
+  return holdView(plan, { ...view, pan: [pan[0] - dx, pan[1] - dy] });
+}
+export function zoomAt(plan, view, k, right, up) {
+  const zoom = clamp((view.zoom || 1) * k, LIMITS.minZoom, LIMITS.maxZoom), kept = 1 - (view.zoom || 1) / zoom;
+  const [dx, dy] = groundShift(view.azimuth, view.elevation, right * kept, up * kept), pan = view.pan || [0, 0];
+  return holdView(plan, { ...view, zoom, pan: [pan[0] + dx, pan[1] + dy] });
 }
 
 // Between two frames, turning the short way round. k goes from 0 to 1.

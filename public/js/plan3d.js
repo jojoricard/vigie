@@ -7,15 +7,15 @@
    Each kind of device is one entry of MODULES: a new type is a new entry. */
 import * as THREE from "../vendor/three/three.module.min.js";
 import { furnitureParts, placePart } from "./furniture.js";
-import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallInside, wallDrop, LOW_WALL, LIMITS } from "./plan.js";
+import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, wallTall, holdView, panBy, zoomAt, LIMITS } from "./plan.js";
 
 const MAX_PIXEL_RATIO = 1.5;      // a 4K kiosk would otherwise shade four times the pixels
 const AMBIENT_FPS = 20;           // the breath of an air conditioner needs no more
-const MOVE_MS = 520;
+const FOLLOW_MS = 90;             // how far behind the view the picture trails
+const FLICK_MS = 160;             // how long a move goes on once let go
 const FLOOR_PX = 44;              // pixels per meter of a floor's pattern
 const LIGHT_PX = 20;              // and of the light lamps throw on it: a soft gradient needs few
 const DEG = Math.PI / 180;
-const ease = (k) => 1 - (1 - k) ** 3;
 
 /* The palette of the stylesheet is OKLCH derived from one theme color. The browser
    resolves it: one pixel is painted with the CSS color and read back. */
@@ -195,38 +195,35 @@ const MODULES = {
     };
   },
 
-  /* A shutter hangs in the frame of its window, which rises above the cut walls for
-     it: the curtain comes down as far as the device says. */
+  /* A shutter hangs in the frame of its window: the curtain comes down as far as the
+     device says, and shows as far up as the wall of the window is cut. */
   cover(ctx, { point }) {
     const o = point.opening, f = openingFrame(ctx.plan, o), sill = o.sill || 0, head = sill + o.height, group = new THREE.Group();
     const angle = -Math.atan2(f.uy, f.ux), t = f.wall.thickness;
-    for (const end of [f.start, f.end]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.035, head - sill, 0.035), ctx.mat.frame);
-      post.position.copy(at(end[0], end[1], (sill + head) / 2));
-      group.add(post);
-    }
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(o.width + 0.035, 0.035, 0.035), ctx.mat.frame);
-    lintel.position.copy(at(f.x, f.y, head));
-    lintel.rotation.y = angle;
     const curtain = new THREE.Mesh(new THREE.BoxGeometry(o.width, 1, 0.02), ctx.mat.curtain);
     curtain.rotation.y = angle;
     const bar = new THREE.Mesh(new THREE.BoxGeometry(o.width, 0.045, 0.035), ctx.mat.frame);
     bar.rotation.y = angle;
-    group.add(lintel, curtain, bar);
-    let closed = 0;
+    group.add(curtain, bar);
+    const pin = at(f.x, f.y, 0);
+    let closed = 0, cut = CUT_HEIGHT;
     const place = () => {
-      const drop = Math.max(0.03, (head - sill) * closed);
-      curtain.scale.y = drop;
-      curtain.position.copy(at(f.x, f.y, head - drop / 2));
-      bar.position.copy(at(f.x, f.y, head - drop));
+      const low = head - Math.max(0.03, (head - sill) * closed), top = Math.min(head, cut);
+      curtain.visible = top - low > 0.01;
+      curtain.scale.y = Math.max(0.01, top - low);
+      curtain.position.copy(at(f.x, f.y, (top + low) / 2));
+      bar.visible = low < cut;
+      bar.position.copy(at(f.x, f.y, low));
+      pin.copy(at(f.x, f.y, top + 0.2));
     };
     return {
-      object: group, pin: at(f.x, f.y, Math.min(head, CUT_HEIGHT + 0.9) + 0.2),
+      object: group, pin,
       update(device) {
         const target = coverClosed(device.state);
         if (ctx.still || Math.abs(target - closed) < 0.005) { closed = target; place(); return; }
         ctx.tween(closed, target, 700, (v) => { closed = v; place(); });
       },
+      cut(h) { cut = h; place(); },
       extent: t,
     };
   },
@@ -236,6 +233,11 @@ const MODULES = {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 10), new THREE.MeshBasicMaterial({ color: ctx.pal.accent }));
     dot.position.copy(at(point.x, point.y, h));
     return { object: dot, pin: at(point.x, point.y, h + 0.2), update() {} };
+  },
+
+  // A water heater, a television, a washing machine: the furniture of the plan draws them, the marker says how they are.
+  appliance(ctx, { point }) {
+    return { object: new THREE.Group(), pin: at(point.x, point.y, shown(point.z, 0.9) + 0.15), update() {} };
   },
 };
 export const MODULE_NAMES = Object.keys(MODULES);
@@ -361,64 +363,87 @@ export function createPlan3d(stage, plan, hooks) {
     }
   }
 
-  /* A wall and what is set in it form a group: a wall in the way of its rooms comes
-     down with its windows and its doors (wallDrop), and back up when the model turns. */
-  const walls = new Map();   // wall id -> { group, inside }
+  /* Walls and what is set in them are cut where the view cuts their wall (wallHeight):
+     low when the wall is in the way of its rooms, high enough for its windows when it
+     stands behind them. Every part is a unit box stretched to what is left of it, so
+     a wall that sinks or rises while the model turns allocates nothing. An opening is
+     cut with its wall and never moves: under its sill, a window is no more than a
+     line of glass on the cut. */
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  const walls = new Map();   // wall id -> { wall, sets: [(height) => void], height }
+  // a box between two heights, hidden when nothing is left of it
+  const stretch = (mesh, x, y, bottom, top) => {
+    mesh.visible = top - bottom > 0.005;
+    if (!mesh.visible) return;
+    mesh.scale.y = top - bottom;
+    mesh.position.copy(at(x, y, (bottom + top) / 2));
+  };
+  const slab = (material, length, thickness, angle) => {
+    const mesh = new THREE.Mesh(unit, material);
+    mesh.scale.set(length, 1, thickness);
+    mesh.rotation.y = angle;
+    scene.add(mesh);
+    return mesh;
+  };
   for (const wall of plan.walls || []) {
-    const group = new THREE.Group();
-    walls.set(wall.id, { group, inside: wallInside(plan, wall) });
-    scene.add(group);
+    const f = wallFrame(wall), angle = -Math.atan2(f.uy, f.ux), tall = wallTall(plan, wall), sets = [];
+    walls.set(wall.id, { wall, sets, height: null });
+    for (const piece of wallPieces(plan, wall, tall)) {
+      const len = piece.to - piece.from, mid = (piece.from + piece.to) / 2;
+      if (len < 0.005 || piece.top - piece.bottom < 0.005) continue;
+      const whole = piece.top >= tall, side = whole ? mat.wall : mat.sill;
+      const box = slab([side, side, mat.wallTop, side, side, side], len, wall.thickness, angle);
+      const x = wall.a[0] + f.ux * mid, y = wall.a[1] + f.uy * mid;
+      sets.push((h) => {
+        const top = Math.min(piece.top, h);
+        // the cut is the clear line of the model; a sill that is not cut keeps the color of its wall
+        box.material[2] = whole || top < piece.top ? mat.wallTop : side;
+        stretch(box, x, y, piece.bottom, top);
+      });
+    }
   }
-  const inWall = (id) => (walls.get(id) || { group: scene }).group;
-  function dropWalls(azimuth, elevation) {
-    for (const { group, inside } of walls.values()) group.scale.y = 1 - wallDrop(inside, azimuth, elevation) * (1 - LOW_WALL / CUT_HEIGHT);
-  }
-
-  for (const wall of plan.walls || []) {
-    const f = wallFrame(wall), angle = -Math.atan2(f.uy, f.ux);
-    for (const piece of wallPieces(plan, wall)) {
-      const len = piece.to - piece.from, h = piece.top - piece.bottom, mid = (piece.from + piece.to) / 2;
-      if (len < 0.005 || h < 0.005) continue;
-      const full = piece.top >= CUT_HEIGHT, side = full ? mat.wall : mat.sill;
-      const box = new THREE.Mesh(new THREE.BoxGeometry(len, h, wall.thickness), [side, side, full ? mat.wallTop : side, side, side, side]);
-      box.position.copy(at(wall.a[0] + f.ux * mid, wall.a[1] + f.uy * mid, piece.bottom + h / 2));
-      box.rotation.y = angle;
-      inWall(wall.id).add(box);
+  function raiseWalls(azimuth, elevation) {
+    for (const entry of walls.values()) {
+      const h = wallHeight(plan, entry.wall, azimuth, elevation);
+      if (entry.height !== null && Math.abs(h - entry.height) < 0.002) continue;
+      entry.height = h;
+      for (const set of entry.sets) set(h);
     }
   }
 
   for (const o of plan.openings || []) {
-    const f = openingFrame(plan, o);
-    if (!f) continue;
-    const angle = -Math.atan2(f.uy, f.ux), sill = o.sill || 0, top = Math.min(sill + o.height, CUT_HEIGHT);
+    const f = openingFrame(plan, o), entry = f && walls.get(o.wall);
+    if (!entry) continue;
+    const angle = -Math.atan2(f.uy, f.ux), sill = o.sill || 0, head = sill + o.height;
     if (o.type === "window" || o.type === "french-window") {
-      if (top - sill < 0.02) continue;
-      const pane = new THREE.Mesh(new THREE.BoxGeometry(o.width, top - sill, 0.03), mat.glass);
-      pane.position.copy(at(f.x, f.y, (sill + top) / 2));
-      pane.rotation.y = angle;
-      inWall(o.wall).add(pane);
-    } else if (o.type === "door" && o.closed) {
-      const leaf = new THREE.Mesh(new THREE.BoxGeometry(o.width, top, 0.04), mat.leaf);
-      leaf.position.copy(at(f.x, f.y, top / 2));
-      leaf.rotation.y = angle;
-      inWall(o.wall).add(leaf);
-    } else if (o.type === "door") {
-      // the leaf stands open, on the side of the room it opens into
-      const room = plan.rooms.find((r) => r.id === o.opensInto);
-      const c = room ? polygonCentroid(room.polygon) : [f.x + f.nx, f.y + f.ny];
-      const side = (c[0] - f.x) * f.nx + (c[1] - f.y) * f.ny >= 0 ? 1 : -1;
-      const hinge = o.hinge === "end" ? f.end : f.start, along = o.hinge === "end" ? -1 : 1;
-      const swing = 72 * DEG * side * along;
-      const dir = [f.ux * along * Math.cos(swing) - f.uy * along * Math.sin(swing), f.ux * along * Math.sin(swing) + f.uy * along * Math.cos(swing)];
-      const leaf = new THREE.Mesh(new THREE.BoxGeometry(o.width, top, 0.04), mat.leaf);
-      leaf.position.copy(at(hinge[0] + dir[0] * o.width / 2, hinge[1] + dir[1] * o.width / 2, top / 2));
-      leaf.rotation.y = -Math.atan2(dir[1], dir[0]);
-      inWall(o.wall).add(leaf);
-    } else if (o.type === "closet") {
-      const doors = new THREE.Mesh(new THREE.BoxGeometry(o.width - 0.04, top, 0.03), mat.furniture);
-      doors.position.copy(at(f.x, f.y, top / 2));
-      doors.rotation.y = angle;
-      inWall(o.wall).add(doors);
+      const pane = slab(mat.glass, o.width, 0.03, angle), bar = 0.045, deep = Math.min(0.08, f.wall.thickness * 0.5);
+      // the frame: both jambs, a middle post when there are two leaves, the sill and the head
+      const posts = [0, ...(o.width >= 1 ? [0.5] : []), 1].map((k) => ({ k, mesh: slab(mat.frame, bar, deep, angle) }));
+      const rails = [sill > 0 ? sill + bar / 2 : -1, head - bar / 2].map((z) => ({ z, mesh: slab(mat.frame, o.width + bar, deep, angle) }));
+      const trace = slab(mat.glass, o.width, f.wall.thickness * 0.45, angle);
+      entry.sets.push((h) => {
+        const top = Math.min(head, h);
+        stretch(pane, f.x, f.y, sill, top);
+        for (const { k, mesh } of posts) stretch(mesh, f.start[0] + (f.end[0] - f.start[0]) * k, f.start[1] + (f.end[1] - f.start[1]) * k, sill, top);
+        for (const { z, mesh } of rails) stretch(mesh, f.x, f.y, z - bar / 2, z > 0 && z + bar / 2 <= h + 1e-6 ? z + bar / 2 : z - bar / 2);
+        stretch(trace, f.x, f.y, h, top > sill ? h : h + 0.012);
+      });
+    } else if (o.type === "door" || o.type === "closet") {
+      let x = f.x, y = f.y, turn = angle;
+      if (o.type === "door" && !o.closed) {
+        // the leaf stands open, on the side of the room it opens into
+        const room = plan.rooms.find((r) => r.id === o.opensInto);
+        const c = room ? polygonCentroid(room.polygon) : [f.x + f.nx, f.y + f.ny];
+        const side = (c[0] - f.x) * f.nx + (c[1] - f.y) * f.ny >= 0 ? 1 : -1;
+        const hinge = o.hinge === "end" ? f.end : f.start, along = o.hinge === "end" ? -1 : 1;
+        const swing = 72 * DEG * side * along;
+        const dir = [f.ux * along * Math.cos(swing) - f.uy * along * Math.sin(swing), f.ux * along * Math.sin(swing) + f.uy * along * Math.cos(swing)];
+        x = hinge[0] + dir[0] * o.width / 2; y = hinge[1] + dir[1] * o.width / 2; turn = -Math.atan2(dir[1], dir[0]);
+      }
+      const closet = o.type === "closet";
+      const leaf = slab(closet ? mat.furniture : mat.leaf, closet ? o.width - 0.04 : o.width, closet ? 0.03 : 0.04, turn);
+      // an open leaf is cut like the walls between rooms: it stands in one of them
+      entry.sets.push((h) => stretch(leaf, x, y, 0, Math.min(head, o.type === "door" && !o.closed ? Math.min(h, CUT_HEIGHT) : h)));
     }
   }
 
@@ -522,22 +547,28 @@ export function createPlan3d(stage, plan, hooks) {
     sky.intensity = 1.15 + 0.85 * day;
   }
 
+  function retire(entry) {
+    if (entry.wall) entry.wall.sets.splice(entry.wall.sets.indexOf(entry.instance.cut), 1);
+    entry.instance.object.removeFromParent();
+    entry.el.remove();
+  }
   function update(rooms) {
     const placed = placedDevices(plan, rooms), seen = new Set();
     for (const p of placed) {
       seen.add(p.device.id);
       let entry = live.get(p.device.id);
       if (!entry || entry.module !== p.module) {
-        if (entry) { entry.instance.object.removeFromParent(); entry.el.remove(); }
+        if (entry) { retire(entry); }
         const instance = MODULES[p.module](ctx, p);
-        // a shutter belongs to the wall of its window, and comes down with it
-        const host = p.point.opening ? inWall(p.point.opening.wall) : scene;
-        host.add(instance.object);
+        scene.add(instance.object);
+        // a shutter shows as far up as the wall of its window is cut
+        const wall = instance.cut && walls.get(p.point.opening.wall);
+        if (wall) { wall.sets.push(instance.cut); if (wall.height !== null) instance.cut(wall.height); }
         const el = document.createElement("button");
         el.type = "button";
         el.dataset.device = p.device.id;
         overlay.appendChild(el);
-        entry = { module: p.module, instance, host, el, html: null, w: 0, h: 0 };
+        entry = { module: p.module, instance, wall, el, html: null, w: 0, h: 0 };
         live.set(p.device.id, entry);
       }
       entry.instance.update(p.device);
@@ -550,7 +581,7 @@ export function createPlan3d(stage, plan, hooks) {
     }
     for (const [id, entry] of live) {
       if (seen.has(id)) continue;
-      entry.instance.object.removeFromParent(); entry.el.remove(); live.delete(id);
+      retire(entry); live.delete(id);
     }
     for (const l of labels) {
       const label = hooks.roomLabel(l.room);
@@ -583,18 +614,32 @@ export function createPlan3d(stage, plan, hooks) {
     for (const [device, entry] of live) entry.el.classList.toggle("hl", device === lit);
   }
 
-  /* ---- camera: an orthographic view that can turn and zoom, within limits ----
+  /* ---- camera: an orthographic view that turns, zooms and slides, within limits ----
      The frame is worked out from the view at every picture: the home fills the same
-     share of the card at any angle and any size. */
+     share of the card at any angle and any size. The picture follows the view with a
+     short lag: a move ends softly, a limit is reached without a jolt, a flick carries
+     on a little. Once it has caught up, nothing is drawn. */
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
   const views = presets(plan);
-  let view = { ...views.iso }, width = 0, height = 0, glide = null;   // glide: { from, k } while a view comes in
+  let view = { ...views.iso }, shownName = "iso", width = 0, height = 0, shownFrame = null, snap = true, clock = 0;
+  const turnBetween = (a, b) => Math.abs(((b - a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+  const caughtUp = (f, g) => turnBetween(f.azimuth, g.azimuth) < 4e-4 && Math.abs(f.elevation - g.elevation) < 4e-4
+    && Math.abs(f.height - g.height) < g.height * 8e-4 && Math.hypot(f.center[0] - g.center[0], f.center[1] - g.center[1], f.center[2] - g.center[2]) < 0.004;
 
-  function applyCamera() {
+  // Draws the camera one step closer to the view. True once it is there.
+  function applyCamera(now) {
     const aspect = width / Math.max(1, height), goal = frameView(plan, view, aspect);
-    const f = glide ? mixFrame(glide.from, goal, glide.k) : goal;
-    shownFrame = f;
-    dropWalls(f.azimuth, f.elevation);
+    // the first picture of a move counts as one frame; a slow machine catches up by longer steps
+    const dt = clock ? Math.min(250, Math.max(1, now - clock)) : 16;
+    clock = now;
+    if (snap || still || !shownFrame) shownFrame = goal;
+    else {
+      shownFrame = mixFrame(shownFrame, goal, 1 - Math.exp(-dt / FOLLOW_MS));
+      if (caughtUp(shownFrame, goal)) shownFrame = goal;
+    }
+    snap = false;
+    const f = shownFrame;
+    raiseWalls(f.azimuth, f.elevation);
     const { back } = viewAxes(f.azimuth, f.elevation);
     const target = at(f.center[0], f.center[1], f.center[2]);
     camera.position.copy(target).addScaledVector(at(back[0], back[1], back[2]), 120);
@@ -603,45 +648,50 @@ export function createPlan3d(stage, plan, hooks) {
     const halfH = f.height / 2, halfW = halfH * aspect;
     camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
     camera.updateProjectionMatrix();
+    if (f === goal) clock = 0;
+    return f === goal;
   }
-  let shownFrame = null;
-  const stopGlide = () => { if (glide) { tweens.delete(glide.tween); glide = null; } };
 
+  let byHand = false;
+  const handed = (on) => { if (on !== byHand) { byHand = on; if (hooks.onMoved) hooks.onMoved(on); } };
   function setView(goal, instant = false) {
-    stopGlide();
-    view = clampView(goal);
-    if (instant || still || !shownFrame) { invalidate(); return; }
-    glide = { from: shownFrame, k: 0 };
-    glide.tween = tween(0, 1, MOVE_MS, (k) => { if (glide) glide.k = ease(k); }, () => { glide = null; });
+    view = holdView(plan, goal);
+    if (instant) snap = true;
+    invalidate();
   }
-  // turning or zooming by hand starts from what is on screen, and the angle is then the hand's
+  // a move by hand starts from the angle on screen, and the angle is then the hand's
   function grab() {
-    if (shownFrame) view = clampView({ ...view, auto: false, azimuth: shownFrame.azimuth, elevation: shownFrame.elevation });
-    stopGlide();
+    const from = shownFrame || frameView(plan, view, width / Math.max(1, height));
+    if (view.auto) view = { ...view, auto: false, azimuth: from.azimuth, elevation: from.elevation };
+    handed(true);
   }
 
   // name: "iso", "top", or a room id (which is also highlighted)
   function show(name) {
     const room = views.rooms[name];
     selected = room ? name : null;
+    shownName = room || views[name] ? name : "iso";
     paintFloors();
+    handed(false);
     setView(room || views[name] || views.iso);
   }
 
   /* ---- drawing, on demand ---- */
   let raf = 0, timer = 0, dirty = true, active = true, disposed = false;
-  const spot = new THREE.Vector3(), pinned = new THREE.Vector3();
+  const spot = new THREE.Vector3();
   const project = (point) => { spot.copy(point).project(camera); return [(spot.x + 1) / 2 * width, (1 - spot.y) / 2 * height]; };
   const place = (el, x, y) => { el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`; };
   const overlap = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
 
-  /* Markers stand where their device is. The name of a room then takes the free spot
-     closest to the middle of its floor: on it, else just below or above, else beside. */
+  /* Markers stand where their device is and are always shown. The name of a room then
+     takes the free spot closest to the middle of its floor: on it, else just below or
+     above, else beside. A name left without a free spot is not shown: two texts over
+     each other say less than one. */
   function placeLabels() {
     const taken = [];
     for (const entry of live.values()) {
       if (!entry.w) { entry.w = entry.el.offsetWidth; entry.h = entry.el.offsetHeight; }
-      const [x, y] = project(pinned.copy(entry.instance.pin).setY(entry.instance.pin.y * entry.host.scale.y));
+      const [x, y] = project(entry.instance.pin);
       entry.el.hidden = x < -20 || y < -20 || x > width + 20 || y > height + 20;
       if (entry.el.hidden) continue;
       place(entry.el, x, y);
@@ -655,11 +705,13 @@ export function createPlan3d(stage, plan, hooks) {
       if (l.el.hidden) continue;
       let best = null;
       for (const [ox, oy] of [[0, 0], [0, dy], [0, -dy], [0, 2 * dy], [0, -2 * dy], [dx, 0], [-dx, 0], [dx, dy], [-dx, dy], [dx, -dy], [-dx, -dy]]) {
-        const box = [x + ox - l.w / 2 - 2, y + oy - l.h / 2 - 2, x + ox + l.w / 2 + 2, y + oy + l.h / 2 + 2];
-        const cost = taken.reduce((sum, t) => sum + overlap(box, t), 0);
-        if (!best || cost < best.cost) best = { cost, box, x: x + ox, y: y + oy };
-        if (!cost) break;
+        const box = [x + ox - l.w / 2 - 3, y + oy - l.h / 2 - 3, x + ox + l.w / 2 + 3, y + oy + l.h / 2 + 3];
+        if (taken.some((t) => overlap(box, t) > 0)) continue;
+        best = { box, x: x + ox, y: y + oy };
+        break;
       }
+      l.el.hidden = !best;
+      if (!best) continue;
       place(l.el, best.x, best.y);
       taken.push(best.box);
     }
@@ -678,12 +730,12 @@ export function createPlan3d(stage, plan, hooks) {
     if (!still) for (const { instance } of live.values()) if (instance.tick && instance.tick(now / 1000)) alive = true;
     if (dirty || alive) {
       const moved = dirty;
-      applyCamera();
+      // still catching up with the view: another picture follows this one
+      dirty = !applyCamera(now);
       renderer.render(scene, camera);
       if (moved) placeLabels();      // the breath of a unit moves no label
-      dirty = false;
     }
-    if (tweens.size) schedule(0);
+    if (tweens.size || dirty) schedule(0);
     else if (alive) schedule(1000 / AMBIENT_FPS);
   }
   function schedule(delay) {
@@ -700,19 +752,34 @@ export function createPlan3d(stage, plan, hooks) {
     if (!width || !height) return;
     renderer.setPixelRatio(Math.min(MAX_PIXEL_RATIO, devicePixelRatio * (box.width / width || 1)));
     renderer.setSize(width, height, false);
+    snap = true;      // a new size is not a move
     invalidate();
   }
 
-  /* ---- pointer: turn with one finger, pinch or Ctrl+wheel to zoom, tap to pick ---- */
+  /* ---- by hand ----
+     Mouse: drag to turn, right button or Shift to slide, wheel to zoom on the pointer.
+     Touch: one finger turns, two pinch and slide. Twice on a room frames it. Keys, when
+     the plan has the focus: arrows turn, Shift + arrows slide, + and - zoom. */
   const pointers = new Map();
-  let travelled = 0, downAt = 0, pinch = 0;
+  let travelled = 0, downAt = 0, pinch = null, sliding = false, flick = null, lastTap = null;
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  const spread = () => { const [p, q] = [...pointers.values()]; return Math.hypot(p.x - q.x, p.y - q.y); };
+  const goal = () => frameView(plan, view, width / Math.max(1, height));
+  // from a point of the page to meters from the middle of the picture, right and up
+  function onPicture(clientX, clientY) {
+    const box = canvas.getBoundingClientRect(), k = goal().height / box.height;
+    return [(clientX - box.left - box.width / 2) * k, -(clientY - box.top - box.height / 2) * k, k];
+  }
+  const turn = (dx, dy) => { view = holdView(plan, { ...view, azimuth: view.azimuth - dx * 0.35 * DEG, elevation: view.elevation + dy * 0.3 * DEG }); };
+  const slide = (dx, dy) => { const k = onPicture(0, 0)[2]; view = panBy(plan, view, dx * k, -dy * k); };
+  const zoomOn = (clientX, clientY, k) => { const [right, up] = onPicture(clientX, clientY); view = zoomAt(plan, view, k, right, up); };
+  const between = () => { const [p, q] = [...pointers.values()]; return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, d: Math.hypot(p.x - q.x, p.y - q.y) }; };
+  canvas.tabIndex = 0;
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 1) { travelled = 0; downAt = performance.now(); }
-    if (pointers.size === 2) pinch = spread();
+    flick = null;
+    if (pointers.size === 1) { travelled = 0; downAt = performance.now(); sliding = e.button === 2 || e.shiftKey; }
+    if (pointers.size === 2) pinch = between();
   });
   canvas.addEventListener("pointermove", (e) => {
     const p = pointers.get(e.pointerId);
@@ -722,30 +789,66 @@ export function createPlan3d(stage, plan, hooks) {
     travelled += Math.abs(dx) + Math.abs(dy);
     if (travelled < 6) return;
     grab();
-    if (pointers.size === 1) view = clampView({ ...view, azimuth: view.azimuth - dx * 0.35 * DEG, elevation: view.elevation + dy * 0.3 * DEG });
-    else if (pointers.size === 2 && pinch) { const d = spread(); view = clampView({ ...view, zoom: view.zoom * d / pinch }); pinch = d; }
+    if (pointers.size === 1) {
+      if (sliding) slide(dx, dy); else turn(dx, dy);
+      // the speed of the hand, kept for what follows the release
+      const now = performance.now(), dt = Math.max(1, now - (flick ? flick.at : now - 16));
+      flick = { at: now, sliding, vx: ((flick ? flick.vx : 0) + dx / dt) / 2, vy: ((flick ? flick.vy : 0) + dy / dt) / 2 };
+    } else if (pointers.size === 2 && pinch) {
+      const now = between();
+      slide(now.x - pinch.x, now.y - pinch.y);
+      if (pinch.d > 0) zoomOn(now.x, now.y, now.d / pinch.d);
+      pinch = now;
+    }
     invalidate();
   });
   const release = (e) => {
-    if (!pointers.delete(e.pointerId) || pointers.size) return;
-    if (e.type !== "pointerup" || travelled >= 6 || performance.now() - downAt > 450) return;
-    // a tap: which floor is under the finger
-    const box = canvas.getBoundingClientRect();
-    ndc.set(((e.clientX - box.left) / box.width) * 2 - 1, -((e.clientY - box.top) / box.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects([...floors.values()].map((f) => f.mesh), false)[0];
-    hooks.onRoom(hit ? hit.object.userData.room : null);
+    if (!pointers.delete(e.pointerId)) return;
+    if (pointers.size) { pinch = null; flick = null; return; }
+    const now = performance.now();
+    if (e.type === "pointerup" && travelled < 6 && now - downAt < 450) {
+      // a second tap at the same place: frame the room under it, or the home beside any room
+      if (lastTap && now - lastTap.at < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+        lastTap = null;
+        const box = canvas.getBoundingClientRect();
+        ndc.set(((e.clientX - box.left) / box.width) * 2 - 1, -((e.clientY - box.top) / box.height) * 2 + 1);
+        ray.setFromCamera(ndc, camera);
+        const hit = ray.intersectObjects([...floors.values()].map((f) => f.mesh), false)[0];
+        hooks.onRoom(hit ? hit.object.userData.room : null);
+      } else lastTap = { at: now, x: e.clientX, y: e.clientY };
+      return;
+    }
+    // let go while moving: the view goes on for what the hand would have covered in a moment
+    if (e.type === "pointerup" && flick && now - flick.at < 80 && !still) {
+      if (flick.sliding) slide(flick.vx * FLICK_MS, flick.vy * FLICK_MS); else turn(flick.vx * FLICK_MS, flick.vy * FLICK_MS);
+      invalidate();
+    }
+    flick = null;
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
-  // a plain wheel scrolls the page, as everywhere else on it
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  // the tab does not scroll: the wheel belongs to the plan
   canvas.addEventListener("wheel", (e) => {
-    if (!e.ctrlKey) return;
     e.preventDefault();
     grab();
-    view = clampView({ ...view, zoom: view.zoom * Math.exp(-e.deltaY * 0.0016) });
+    zoomOn(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016)));
     invalidate();
   }, { passive: false });
+  canvas.addEventListener("keydown", (e) => {
+    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    const zoom = { "+": 1.25, "=": 1.25, "-": 0.8, _: 0.8 }[e.key];
+    if (e.ctrlKey || e.metaKey || e.altKey || (!arrow && !zoom && e.key !== "Home" && e.key !== "0")) return;
+    e.preventDefault();
+    if (!arrow && !zoom) { recenter(); return; }
+    grab();
+    if (zoom) view = zoomAt(plan, view, zoom, 0, 0);
+    else if (e.shiftKey) slide(-arrow[0] * 60, -arrow[1] * 60);
+    else turn(-arrow[0] * 30, -arrow[1] * 20);
+    invalidate();
+  });
+  // back to the automatic frame of what is shown
+  function recenter() { show(shownName); }
   overlay.addEventListener("click", (e) => {
     const pin = e.target.closest("[data-device]");
     if (pin) hooks.onDevice(pin.dataset.device);
@@ -788,5 +891,5 @@ export function createPlan3d(stage, plan, hooks) {
   }
 
   resize();
-  return { update, show, highlight, dispose, roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
+  return { update, show, recenter, highlight, dispose, roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
 }

@@ -12,6 +12,8 @@ const daikin = require('./drivers/daikin');
 const goveeLan = require('./drivers/govee-lan');
 const goveeCloud = require('./drivers/govee-cloud');
 const cozytouch = require('./drivers/cozytouch');
+const lgWebos = require('./drivers/lg-webos');
+const lgThinq = require('./drivers/lg-thinq');
 const demo = require('./drivers/demo');
 const plan = require('./plan');
 
@@ -22,6 +24,7 @@ function withEnv(cfg, env = process.env) {
   const out = { ...cfg, token: env.HOUSE_TOKEN || cfg.token || '' };
   if (env.HOUSE_PLAN) out.planPath = env.HOUSE_PLAN;
   if (cfg.govee || env.GOVEE_API_KEY) out.govee = { ...cfg.govee, apiKey: env.GOVEE_API_KEY || (cfg.govee || {}).apiKey || '' };
+  if (cfg.lgThinq || env.LG_THINQ_TOKEN) out.lgThinq = { ...cfg.lgThinq, token: env.LG_THINQ_TOKEN || (cfg.lgThinq || {}).token || '' };
   if (cfg.cozytouch || env.COZYTOUCH_USERNAME) {
     out.cozytouch = { ...cfg.cozytouch, username: env.COZYTOUCH_USERNAME || (cfg.cozytouch || {}).username, password: env.COZYTOUCH_PASSWORD || (cfg.cozytouch || {}).password };
   }
@@ -39,6 +42,10 @@ function buildDrivers(cfg) {
   if (g.cloudFallback && g.apiKey) drivers['govee-cloud'] = goveeCloud.create({ apiKey: g.apiKey });
   const c = cfg.cozytouch;
   if (c && c.username && c.password) drivers.cozytouch = cozytouch.create({ username: c.username, password: c.password });
+  // a television is on the local network and has its key on its own device: nothing to configure apart
+  if (used.has('lg-webos')) drivers['lg-webos'] = lgWebos.create();
+  const t = cfg.lgThinq;
+  if (t && t.token) drivers['lg-thinq'] = lgThinq.create({ token: t.token, country: t.country, region: t.region });
   return drivers;
 }
 

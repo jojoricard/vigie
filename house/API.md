@@ -92,6 +92,13 @@ A device:
 | `schedule` | heater | the weekly program, in the heater's own format (see below) |
 | `schedule` | climate | the weekly program stored in the unit: `{ "type": "program", "perDay": 6, "modes": ["heat", "cool", "dry"] }`. See [Weekly program of an air conditioner](#weekly-program-of-an-air-conditioner) |
 | `position` | cover | 0 (closed) to 100 (open) |
+| `mode` | water | `manual`, `eco` (the heater adapts to the habits of the home), `schedule` when the heater is found on a program |
+| `showers` | water | the hot water asked for, in showers |
+| `boost` | water | boolean: heat now, whatever the mode |
+| `away` | water | `{ "type": "period" }`. Set with `{ "from": "…", "to": "…" }` (two dates, ISO 8601), ended with `null`. The state holds the same, with `"pending": true` while the departure is still to come |
+| `volume`, `muted` | tv | 0 to 100, boolean |
+| `source`, `app` | tv | one of `options`, the inputs and the applications of the set. `labels` gives the name of each, as the set shows it |
+| `start` | washer | `{ "type": "action" }`: set to `true` to start the cycle. Only offered while the machine waits for a remote start |
 
 ### Reported only
 
@@ -105,6 +112,12 @@ A device:
 | `timer` | climate | `{ "enabled": true }` when the on/off timer of the unit is active. Read only |
 | `schedule` | climate | the weekly program stored in the unit (below). A unit that does not describe its entries only gives `{ "enabled": true }` |
 | `temperature` | heater, sensor | °C |
+| `showersLeft`, `hotWater`, `temperature`, `setpoint`, `energyKwh` | water | hot water left in showers and in percent, water at mid-height and its target in °C, energy used since the heater was installed. Each only when the heater reports it |
+| `appName` | tv | what is on screen: the name of the input or of the application |
+| `run` | washer | `off`, `idle`, `running`, `paused`, `scheduled`, `done`, `error` |
+| `phase` | washer | while running, the step in the machine's own word: `detecting`, `running`, `rinsing`, `spinning`, `drying`… |
+| `remainingMin`, `totalMin`, `endsAt` | washer | minutes left and in all, and the time the cycle ends |
+| `remoteStart` | washer | whether the machine was left waiting for a remote start |
 
 ## Routes
 
@@ -359,7 +372,8 @@ Under `house` in `config.json`:
       ] }
     ],
     "govee": { "cloudFallback": false, "apiKey": "" },
-    "cozytouch": { "username": "", "password": "" }
+    "cozytouch": { "username": "", "password": "" },
+    "lgThinq": { "token": "", "country": "FR", "region": "eic" }
   }
 }
 ```
@@ -374,7 +388,9 @@ Under `house` in `config.json`:
 |---|---|---|---|
 | `govee-lan` | Govee lights | local, UDP | `device` (the id given by `/discovery`) or `ip` |
 | `daikin` | Daikin air conditioners with a Wi-Fi adapter | local, HTTP | `ip` |
-| `cozytouch` | Atlantic, Thermor, Sauter heaters | Cozytouch cloud | `deviceURL` or `label` |
+| `cozytouch` | Atlantic, Thermor, Sauter heaters and water heaters | Cozytouch cloud | `deviceURL` or `label` (with a bridge), `deviceId` (appliances with their own Wi-Fi) |
+| `lg-webos` | LG televisions | local, WebSocket | `host`, `key` (given by pairing), `mac` (to turn it on), `apps` |
+| `lg-thinq` | LG washing machines | LG ThinQ cloud | `deviceId`, `location` for a machine with two drums |
 | `demo` | made-up devices of any type, kept in memory | none | `state`, what the device starts with |
 
 **govee-lan.** Each lamp needs "LAN Control" switched on once in the Govee Home app (the lamp, then its settings). A scan goes to `239.255.255.250:4001` on every network card, lamps answer on port 4002, commands go to port 4003. Only one program can listen on 4002: the driver reports an error if Home Assistant or another instance already does. With `house.govee.cloudFallback` and an API key, a lamp that stays silent on the LAN and has a `sku` in its settings is reached through Govee's cloud instead, for a model without LAN support.
@@ -382,6 +398,12 @@ Under `house` in `config.json`:
 **daikin.** Reserve the IP of each unit on the router. The driver reads what the unit supports from `get_model_info`. Energy comes from the per-unit counters (`get_day_power_ex`, `get_week_power_ex`, `get_year_power_ex`): on a multi-split, `get_week_power` gives the total of the outdoor unit, the same on every indoor unit. The weekly program is read from the unit and written into it (`get_scdltimer_info` gives the layout of an entry, `get_scdltimer_body` the entries of a program, `set_scdltimer_body` and `set_scdltimer_info` take them back). The on/off timer is only reported as active or not.
 
 **cozytouch.** Off until `house.cozytouch` holds the email and password of the Cozytouch (or Sauter, Thermor) account. Written after the open-source pyoverkiz library for an electric towel dryer, and tested on simulated answers only. The weekly program is read and written in the heater's own format, as the `schedule` capability: send back what `state.schedule` gave you, modified.
+
+The Cozytouch account answers on two clouds. Heaters behind a Cozytouch bridge are on Overkiz, as above. Appliances with their own Wi-Fi, such as recent water heaters, are on Atlantic's newer API, read after the open-source [gduteil/cozytouch](https://github.com/gduteil/cozytouch) integration: a device there has a number, `deviceId`, and `/discovery` lists both kinds. A water heater (`"type": "water"`) gives its mode, the showers asked for and left, its boost and the absence of the home. The absence belongs to the account: setting it from here sets it for every appliance of the account, as the Cozytouch app does. Tested on simulated answers only.
+
+**lg-webos.** No cloud: the set is asked on the local network, over the WebSocket the LG remote apps use (port 3001, or 3000 on older sets), after the open-source [aiowebostv](https://github.com/home-assistant-libs/aiowebostv) library. A set accepts a client once, on its screen: `node house/pair-tv.js <address>` asks, and prints the key to put on the device. Turning it on is a Wake-on-LAN packet to its `mac`, which needs "Turn on via Wi-Fi" (or LAN) switched on in the settings of the set. A set that does not answer is off, not unreachable, so a scene can turn it on. Its certificate is its own and is accepted as such: the driver is for a home network. `apps` lists the ids of the applications to offer (`netflix`, `youtube.leanback.v4`…), none by default. Tested on simulated answers only.
+
+**lg-thinq.** Off until `house.lgThinq` holds a personal access token of the LG account, made on <https://connect-pat.lgthinq.com>: `{ "token": "…", "country": "FR", "region": "eic" }` (`eic` for Europe, `aic` for the Americas, `kic` for Asia). It is the official ThinQ Connect API, after LG's own [pythinqconnect](https://github.com/thinq-connect/pythinqconnect) client. A washing machine (`"type": "washer"`) gives its state, the time left and the end of its cycle. The API does not say which program runs. A cycle can be started from here only when "Remote Start" was pressed on the machine, which is LG's rule. The cloud is asked once a minute at most. Tested on simulated answers only.
 
 **demo.** For the tests, the screenshots and trying the House tab without any hardware. `house/demo/config.json` is a made-up flat using it, with its plan beside it:
 
