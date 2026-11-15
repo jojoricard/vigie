@@ -394,6 +394,24 @@ export function frameView(plan, view, aspect) {
   };
 }
 
+/* The share of the picture the home takes in a view, across (w) and up (h), and the
+   height a picture of the given width needs for the home to touch both sides at once
+   (FILL of each). The angle of an automatic view depends on the aspect, so the height
+   is looked for from the tallest picture the card could have down to the one it fits. */
+export function homeShare(plan, view, aspect) {
+  const f = frameView(plan, view, aspect), e = extent(subjectPoints(plan, view.subject, f.azimuth, f.elevation), f.azimuth, f.elevation);
+  return { w: e.width / (f.height * aspect), h: e.height / f.height };
+}
+export function naturalHeight(plan, view, width, tallest) {
+  const still = { ...view, zoom: 1, pan: [0, 0] };
+  let h = tallest;
+  for (let i = 0; i < 4; i++) {
+    const s = homeShare(plan, still, width / h);
+    h = Math.min(tallest, h * s.h / s.w);      // the home's own shape at this angle
+  }
+  return Math.round(h);
+}
+
 /* ---------- Moving by hand ----------
    `groundShift` is the move over the ground that slides the picture by (right, up)
    meters. `panBy` slides a view that way, `zoomAt` zooms it by k while the point at

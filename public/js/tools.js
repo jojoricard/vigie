@@ -108,17 +108,28 @@ export async function refreshPcUpdates() {
 }
 
 // The cheapest price of each fuel over the days the agent has kept, as one line each.
+/* The cheapest price of each fuel day after day, from what the agent kept: one small
+   curve per fuel, each on its own scale (a few cents apart, one scale would flatten
+   both). Under FUEL_DAYS days of history there is no trend to read: no curve. */
+export const FUEL_DAYS = 14;
+export function fuelSeries(list) {
+  return (list || []).filter((f) => f.history && new Set(f.history.map((h) => h.date)).size >= FUEL_DAYS);
+}
 function fuelCurve(list) {
-  const series = list.filter((f) => f.history && f.history.length >= 2);
+  const series = fuelSeries(list);
   if (!series.length) return "";
-  const all = series.flatMap((f) => f.history.map((h) => h.price)), lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 0.01, H = 110;
-  const days = [...new Set(series.flatMap((f) => f.history.map((h) => h.date)))].sort(), x = (d) => (days.indexOf(d) / Math.max(1, days.length - 1)) * 1000;
-  const line = (f, i) => `<path d="${f.history.map((h, n) => `${n ? "L" : "M"}${x(h.date).toFixed(1)} ${(8 + (1 - (h.price - lo) / span) * (H - 16)).toFixed(1)}`).join("")}" fill="none" stroke="var(--accent)" stroke-width="2" opacity="${1 - i * 0.4}" vector-effect="non-scaling-stroke"/>`;
+  const days = [...new Set(series.flatMap((f) => f.history.map((h) => h.date)))].sort(), H = 60;
+  const x = (d) => (days.indexOf(d) / Math.max(1, days.length - 1)) * 1000;
   const day = (d) => relTime(new Date(d + "T12:00:00").toISOString());
-  return `<div class="plot"><div class="chartSide"><span class="num">${dec(hi, 3)} €</span><span class="num">${dec(lo, 3)} €</span></div>
-    <svg class="chart" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" style="min-height:${H}px" aria-hidden="true">${series.map(line).join("")}</svg></div>
-    <div class="chartFeet"><span>${day(days[0])}</span><span>${t("fuel.cheapestOver", days.length)}</span><span>${day(days[days.length - 1])}</span></div>
-    <div class="chartLegend">${series.map((f, i) => `<span><i style="opacity:${1 - i * 0.4}"></i>${t("fuel." + f.type)} <b class="num">${dec(f.history[f.history.length - 1].price, 3)} €</b></span>`).join("")}</div>`;
+  const rows = series.map((f) => {
+    const prices = f.history.map((h) => h.price), lo = Math.min(...prices), hi = Math.max(...prices), span = hi - lo || 0.01;
+    const y = (p) => (4 + (1 - (p - lo) / span) * (H - 8)).toFixed(1);
+    const d = f.history.map((h, n) => `${n ? "L" : "M"}${x(h.date).toFixed(1)} ${y(h.price)}`).join("");
+    return `<div class="fuelSpark"><span class="fl">${t("fuel." + f.type)}<b class="num">${dec(prices[prices.length - 1], 3)} €</b></span>
+      <div class="plot"><svg class="chart" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+      <div class="chartSide"><span class="num">${dec(hi, 3)}</span><span class="num">${dec(lo, 3)}</span></div></div></div>`;
+  }).join("");
+  return `${rows}<div class="chartFeet"><span>${day(days[0])}</span><span>${t("fuel.cheapestOver", days.length)}</span><span>${day(days[days.length - 1])}</span></div>`;
 }
 
 export async function refreshFuel() {
@@ -127,9 +138,12 @@ export async function refreshFuel() {
   $("fuelCard").hidden = !l || !l.length;
   if (!l || !l.length) return;
   $("fuelMeta").textContent = state.cities[0] ? state.cities[0].short : "";
-  const curve = fuelCurve(l);
+  const curve = fuelCurve(l), card = $("fuelCard");
   $("fuelCurve").hidden = !curve;
   $("fuelCurve").innerHTML = curve;
+  // without curves the card is a short list: it takes no room it would leave empty
+  card.toggleAttribute("data-grow", !!curve);
+  if (curve) card.dataset.grow = "1";
   // one row per station, the cheapest of each fuel first
   $("fuelList").innerHTML = l.flatMap((f) => f.stations.length ? f.stations.map((s, i) => `<div class="fuelRow${i ? "" : " best"}">
         <span class="p num">${dec(s.price, 3)} €</span>

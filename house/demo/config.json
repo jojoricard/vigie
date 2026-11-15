@@ -35,7 +35,7 @@
         { "id": "bathroom-washer", "name": "Washing machine", "type": "washer", "driver": "demo", "state": { "on": true, "run": "running", "phase": "rinsing", "remainingMin": 38, "totalMin": 95, "remoteStart": false } }
       ] },
       { "id": "hall", "name": "Hall", "devices": [
-        { "id": "hall-lamp", "name": "Wall lamp", "type": "light", "driver": "demo", "state": { "reachable": false, "error": "lanSilent" } },
+        { "id": "hall-lamp", "name": "Wall lamp", "type": "light", "driver": "demo", "state": { "reachable": false, "error": "cloudOffline", "via": "cloud" } },
         { "id": "hall-meter", "name": "Linky", "type": "meter", "driver": "demo", "state": { "power": 1840, "index": 15320, "tariff": "HP BLEU" } }
       ] },
       { "id": "kitchen", "name": "Kitchen", "devices": [

@@ -140,8 +140,16 @@ export function arrange(blocks, { cols = 1, height, gap = 16, pager = 0 }) {
     }
     shown.forEach((x, i) => { out[x.b.id] = { page, col, mode: x.mode, height: Math.max(0, Math.floor(heights[i])) }; });
     const could = pages.length === 1 && column.some((x) => { const cost = step(x.b, x.mode, shown.length ? gap : 0); return cost != null && cost <= spare; });
-    info.push({ page, col, spare: Math.max(0, Math.floor(spare)), spacing: shown.length > 1 ? Math.min(MAX_SPACING, Math.floor(Math.max(0, spare) / (shown.length - 1))) : 0, could });
+    info.push({ page, col, spare: Math.max(0, Math.floor(spare)), spacing: shown.length > 1 ? Math.min(MAX_SPACING, Math.floor(Math.max(0, spare) / (shown.length - 1))) : 0, could, stacked: shown.length > 1 });
   }));
+  // one spacing for the whole page: the tightest column sets it, so the gaps look the same
+  // from one column to the next (what the others keep stays at their bottom)
+  for (const page of new Set(info.map((c) => c.page))) {
+    const cols = info.filter((c) => c.page === page), stacked = cols.filter((c) => c.stacked);
+    const even = stacked.length ? Math.min(...stacked.map((c) => c.spacing)) : 0;
+    for (const c of cols) c.spacing = Math.min(c.spacing, even);
+  }
+  for (const c of info) delete c.stacked;
   return { pages: pages.map((columns) => columns.map((column) => column.map((x) => x.b.id))), blocks: out, columns: info };
 }
 

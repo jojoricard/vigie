@@ -47,5 +47,5 @@ test('the demo home is made up: its plan follows the schema and names only its o
   assert.ok(home.presence.length && home.network.state === 'up');
   const [, rooms] = await get('/api/v1/rooms');
   const all = rooms.flatMap((r) => r.devices);
-  assert.ok(all.some((d) => d.state.error === 'lanSilent') && all.some((d) => d.type === 'meter'));
+  assert.ok(all.some((d) => d.state.error === 'cloudOffline') && all.some((d) => d.type === 'meter'));
 });

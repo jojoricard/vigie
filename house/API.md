@@ -110,7 +110,7 @@ A device:
 
 | Field | Types | Meaning |
 |---|---|---|
-| `reachable`, `error` | all | `error` is `"lanSilent"` for a Govee lamp that does not answer on the LAN: switched off at the wall, or "LAN Control" off in Govee Home |
+| `reachable`, `error` | all | `error` is `"lanSilent"` for a Govee lamp that does not answer on the LAN: switched off at the wall, or "LAN Control" off in Govee Home. It is `"cloudOffline"` (with `via: "cloud"`) for a lamp reached through the Govee cloud that Govee reports offline, almost always a lamp switched off at the wall. Neither raises an alert, and a scene that only turns lamps off counts them as done |
 | `via` | light | `"cloud"` when the lamp was reached through the Govee cloud fallback |
 | `probeTemp` | climate | temperature read inside the indoor unit, °C. Not the room's |
 | `outdoorTemp` | climate | temperature at the outdoor unit, °C |

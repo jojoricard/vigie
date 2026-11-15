@@ -7,7 +7,7 @@
    Each kind of device is one entry of MODULES: a new type is a new entry. */
 import * as THREE from "../vendor/three/three.module.min.js";
 import { furnitureParts, placePart, colorOf } from "./furniture.js";
-import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, standHeight, wallInside, highOf, curtainOf, holdView, panBy, zoomAt, LIMITS } from "./plan.js";
+import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, standHeight, wallInside, highOf, curtainOf, holdView, panBy, zoomAt, LIMITS, homeShare, naturalHeight } from "./plan.js";
 
 const MAX_PIXEL_RATIO = 1.5;      // a 4K kiosk would otherwise shade four times the pixels
 const AMBIENT_FPS = 20;           // the breath of an air conditioner needs no more
@@ -964,5 +964,8 @@ export function createPlan3d(stage, plan, hooks) {
   }
 
   resize();
-  return { update, show, recenter, highlight, dispose, look: (goal) => setView(goal, true), roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
+  // what the page needs to give the plan the height its home fills, and to check it does
+  const naturalOf = (w, tallest) => naturalHeight(plan, view, w, tallest);
+  const share = () => homeShare(plan, view, width / Math.max(1, height));
+  return { update, show, recenter, highlight, dispose, naturalHeight: naturalOf, share, look: (goal) => setView(goal, true), roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
 }

@@ -2,8 +2,9 @@
    that holds now, with a severity and how long it must have held to count. The engine
    keeps when each one was first seen and which ones were acknowledged, and gives the
    alerts in progress: they feed the band of the Overview, the pill of the tab bar, the
-   night screen and the briefing. An acknowledged alert stays quiet until its condition
-   has gone and come back. collect() and evaluate() are pure. */
+   night screen and the briefing. An acknowledged alert stays quiet until it gets worse
+   (a higher severity, a lower battery, less free space...), until a day has passed, or
+   until its condition has gone for a while and come back. collect() and evaluate() are pure. */
 import { $, LS, state, esc, DAY_MS } from "./core.js";
 import { t, fmtTime, fmtDate, dayKey } from "./i18n.js";
 import { icon, alertIcon } from "./icons.js";
@@ -17,6 +18,8 @@ export const RULES = {
   unreachableMin: 10,      // a device of the house without an answer for that long
   climateOnHours: 12,      // an air conditioner or a heater on without a break
   incidentHours: 24,       // an incident of the PC stays an alert that long
+  ackHours: 24,            // an acknowledged alert still there comes back after that long
+  goneMin: 15,             // a condition missing that long is over; less is a source still loading or a blip
   cpuTemp: 88, gpuTemp: 95, gpuHotTemp: 105, diskTemp: 70, tempHoldMin: 1,
 };
 const RANK = { red: 3, orange: 2, yellow: 1 };
@@ -35,17 +38,17 @@ export function collect(s, rules = RULES, now = Date.now()) {
   for (const c of s.changes || []) if (c.level === "alert") add(`change:${c.kind}`, "change", "orange", { change: c });
   const d = s.sensors;
   if (d) {
-    const hot = (key, value, limit) => { if (value != null && value >= limit) add(`temp:${key}`, "temp", "red", { part: key, value: Math.round(value) }, rules.tempHoldMin); };
+    const hot = (key, value, limit) => { if (value != null && value >= limit) add(`temp:${key}`, "temp", "red", { part: key, value: Math.round(value), worse: Math.round(value) }, rules.tempHoldMin); };
     hot("cpu", d.cpuTemp, rules.cpuTemp); hot("gpu", d.gpuTemp, rules.gpuTemp); hot("gpuHot", d.gpuHot, rules.gpuHotTemp);
     hot("disk", Math.max(...(d.diskTemps || []), -Infinity), rules.diskTemp);
-    if (d.ssd && d.ssd.life != null && d.ssd.life <= rules.ssdLifePct) add("ssd", "ssd", d.ssd.life <= rules.ssdLifePct / 2 ? "red" : "orange", { life: Math.round(d.ssd.life) });
+    if (d.ssd && d.ssd.life != null && d.ssd.life <= rules.ssdLifePct) add("ssd", "ssd", d.ssd.life <= rules.ssdLifePct / 2 ? "red" : "orange", { life: Math.round(d.ssd.life), worse: -Math.round(d.ssd.life) });
   }
   for (const k of (s.devices && s.devices.disks) || []) {
     const free = k.total ? (k.free / k.total) * 100 : 100;
-    if (free <= rules.diskFreePct) add(`disk:${k.id}`, "disk", free <= rules.diskFreePct / 2 ? "red" : "orange", { disk: k.id, free: Math.round(free) });
+    if (free <= rules.diskFreePct) add(`disk:${k.id}`, "disk", free <= rules.diskFreePct / 2 ? "red" : "orange", { disk: k.id, free: Math.round(free), worse: -Math.round(free) });
   }
   for (const b of (s.devices && s.devices.batteries) || []) {
-    if (!b.stale && b.level <= rules.batteryPct) add(`battery:${b.name}`, "battery", "yellow", { name: b.name, level: b.level });
+    if (!b.stale && b.level <= rules.batteryPct) add(`battery:${b.name}`, "battery", "yellow", { name: b.name, level: b.level, worse: -b.level });
   }
   const w = s.windows;
   if (w && w.reboot && w.reboot.length) add("windows:reboot", "reboot", "yellow");
@@ -53,8 +56,8 @@ export function collect(s, rules = RULES, now = Date.now()) {
   for (const room of (s.house && s.house.rooms) || []) {
     for (const dev of room.devices) {
       const st = dev.state || {}, where = { name: dev.name, room: room.name };
-      // a lamp cut at its wall switch is silent on the LAN: that is a state of the lamp, not a failure
-      if (!st.reachable && st.error !== "lanSilent") add(`unreachable:${dev.id}`, "unreachable", "yellow", where, rules.unreachableMin);
+      // a lamp cut at its wall switch is silent on the LAN, or lost by the cloud: a state of the lamp, not a failure
+      if (!st.reachable && st.error !== "lanSilent" && st.error !== "cloudOffline") add(`unreachable:${dev.id}`, "unreachable", "yellow", where, rules.unreachableMin);
       if (!st.reachable) continue;
       if ((dev.type === "climate" || dev.type === "heater") && st.on) add(`longOn:${dev.id}`, "longOn", "yellow", { ...where, hours: rules.climateOnHours }, rules.climateOnHours * 60);
       // a washing machine, or any appliance behind a plug that measures its power
@@ -67,19 +70,36 @@ export function collect(s, rules = RULES, now = Date.now()) {
   return out;
 }
 
-/* The alerts in progress among the candidates, and the memory to keep. memory is
-   { seen: { id: first time }, acked: { id: time } }; an id that is no longer a candidate
-   is forgotten, so the same trouble coming back alerts again. */
-export function evaluate(candidates, memory = {}, now = Date.now()) {
-  const seen = {}, acked = {};
-  const active = [];
+/* The alerts in progress among the candidates, and the memory to keep:
+   { seen: { id: first time }, acked: { id: { at, severity, worse } }, gone: { id: since } }.
+   `worse` is a number that grows as the trouble does (minus the battery level, minus the
+   free space, the temperature). An acknowledged alert comes back when it is worse than
+   when it was acknowledged, or once ackHours have passed. A candidate that goes missing
+   keeps its memory for goneMin: after a reload the sources are not all loaded yet, and
+   an alert must neither come back as new nor lose its acknowledgment for that. */
+export function evaluate(candidates, memory = {}, now = Date.now(), rules = RULES) {
+  const seen = {}, acked = {}, gone = {};
+  const active = [], here = new Set(candidates.map((c) => c.id));
   for (const c of candidates) {
     seen[c.id] = (memory.seen && memory.seen[c.id]) || now;
-    if (memory.acked && memory.acked[c.id]) { acked[c.id] = memory.acked[c.id]; continue; }
+    let ack = memory.acked && memory.acked[c.id];
+    if (typeof ack === "number") ack = { at: ack };      // the memory of an earlier version
+    const back = ack && (now - ack.at >= rules.ackHours * 3600e3
+      || (ack.severity && RANK[c.severity] > RANK[ack.severity])
+      || (ack.worse != null && c.worse != null && c.worse > ack.worse));
+    if (ack && !back) { acked[c.id] = ack; continue; }
     if (now - seen[c.id] >= (c.hold || 0) * 60000) active.push({ ...c, since: seen[c.id] });
   }
+  // what went missing is kept a while, then forgotten
+  for (const id of Object.keys(memory.seen || {})) {
+    if (here.has(id)) continue;
+    const since = (memory.gone && memory.gone[id]) || now;
+    if (now - since >= rules.goneMin * 60000) continue;
+    seen[id] = memory.seen[id]; gone[id] = since;
+    if (memory.acked && memory.acked[id]) acked[id] = memory.acked[id];
+  }
   active.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.since - b.since);
-  return { active, memory: { seen, acked } };
+  return { active, memory: { seen, acked, gone } };
 }
 
 export const worst = (list) => list.reduce((w, a) => RANK[a.severity] > (RANK[w] || 0) ? a.severity : w, null);
@@ -102,15 +122,18 @@ let memory = LS.get("vigie.alerts", {});
 let told = null;
 export function refreshNotices() {
   if (!state.cfg) return;
-  const result = evaluate(collect(state, { ...RULES, ...(state.cfg.alerts || {}) }), memory);
+  const rules = { ...RULES, ...(state.cfg.alerts || {}) };
+  const result = evaluate(collect(state, rules), memory, Date.now(), rules);
   memory = result.memory;
   LS.set("vigie.alerts", memory);
   state.notices = result.active;
   render();
 }
 
+// Acknowledged as it is now: worse than that, it comes back.
 export function acknowledge(id) {
-  memory = { seen: memory.seen || {}, acked: { ...(memory.acked || {}), [id]: Date.now() } };
+  const a = (state.notices || []).find((x) => x.id === id) || {};
+  memory = { ...memory, acked: { ...(memory.acked || {}), [id]: { at: Date.now(), severity: a.severity || null, worse: a.worse ?? null } } };
   refreshNotices();
 }
 

@@ -126,6 +126,7 @@ test('each source gives its alerts, with a severity and how long the condition m
     windows: { reboot: ['servicing'], updates: [] },
     house: { rooms: [{ id: 'a', name: 'Living room', devices: [
       { id: 'lamp', name: 'Lamp', type: 'light', state: { reachable: false, error: 'lanSilent' } },
+      { id: 'bulb', name: 'Bulb', type: 'light', state: { reachable: false, error: 'cloudOffline', via: 'cloud' } },
       { id: 'ac', name: 'Air conditioner', type: 'climate', state: { reachable: true, on: true } },
       { id: 'tv', name: 'Television', type: 'tv', state: { reachable: false, error: 'timeout' } },
       { id: 'washer', name: 'Washer', type: 'washer', state: { reachable: true, run: 'done' } },
@@ -137,6 +138,7 @@ test('each source gives its alerts, with a severity and how long the condition m
   assert.deepEqual(Object.keys(byId).sort(), ['battery:Mouse', 'change:packetLoss', 'connection', 'disk:C:', `incident:${now - 3600e3}`, 'laundry:washer', 'leak:sink', 'longOn:ac', 'ssd', 'temp:cpu', 'tempo:2026-11-16', 'unreachable:tv', 'warning:rain:Port-Alba', 'windows:reboot'].sort());
   assert.equal('warning:wind:Port-Alba' in byId, false, 'a yellow warning stays in the Weather tab');
   assert.equal('unreachable:lamp' in byId, false, 'a lamp cut at its wall switch is not a failure');
+  assert.equal('unreachable:bulb' in byId, false, 'nor one the cloud has lost');
   assert.equal('battery:Headset' in byId, false, 'the last known level of a sleeping device is not news');
   assert.deepEqual([byId['temp:cpu'].severity, byId.ssd.severity, byId['disk:C:'].severity, byId['leak:sink'].severity, byId['battery:Mouse'].severity], ['red', 'orange', 'orange', 'red', 'yellow']);
   // durations: a unit must have been on for hours, a device silent for minutes
@@ -159,12 +161,34 @@ test('an alert waits for its duration, stays quiet once acknowledged, and comes 
   const acked = { seen: r.memory.seen, acked: { 'leak:sink': t0 + 721 * min } };
   r = evaluate([longOn, leak], acked, t0 + 722 * min);
   assert.deepEqual(r.active.map((a) => a.id), ['longOn:ac']);
-  // the leak is gone, then back: it alerts again, and the unit turned off starts a new count when turned on
+  // missing for a moment (a reload, a source still loading): nothing is forgotten
+  r = evaluate([], r.memory, t0 + 723 * min);
+  r = evaluate([longOn, leak], r.memory, t0 + 724 * min);
+  assert.deepEqual(r.active.map((a) => [a.id, a.since]), [['longOn:ac', t0]], 'the leak is still acknowledged, the unit keeps its count');
+  // the leak is gone for good, then back: it alerts again, and the unit turned off starts a new count when turned on
   r = evaluate([], r.memory, t0 + 730 * min);
-  assert.deepEqual(r.memory, { seen: {}, acked: {} });
-  r = evaluate([longOn, leak], r.memory, t0 + 740 * min);
+  r = evaluate([], r.memory, t0 + 746 * min);
+  assert.deepEqual(r.memory, { seen: {}, acked: {}, gone: {} });
+  r = evaluate([longOn, leak], r.memory, t0 + 750 * min);
   assert.deepEqual(r.active.map((a) => a.id), ['leak:sink']);
   assert.equal(worst([]), null);
+});
+
+test('an acknowledged alert comes back when it gets worse, or after a day', async () => {
+  const { evaluate } = await page('alerts.js');
+  const t0 = 1e12, min = 60000, hour = 60 * min;
+  const mouse = (level) => ({ id: 'battery:Mouse', kind: 'battery', severity: 'yellow', hold: 0, level, worse: -level });
+  let r = evaluate([mouse(19)], {}, t0);
+  const memory = { ...r.memory, acked: { 'battery:Mouse': { at: t0 + min, severity: 'yellow', worse: -19 } } };
+  r = evaluate([mouse(19)], memory, t0 + 2 * min);
+  assert.deepEqual(r.active, [], 'acknowledged at 19 %: quiet at 19 %');
+  assert.deepEqual(evaluate([mouse(18)], r.memory, t0 + 3 * min).active.map((a) => a.level), [18], 'back at 18 %');
+  assert.deepEqual(evaluate([mouse(19)], r.memory, t0 + 23 * hour).active, [], 'still quiet the same day');
+  assert.equal(evaluate([mouse(19)], r.memory, t0 + 24 * hour + min).active.length, 1, 'back a day later');
+  // a severity going up brings it back as well, and an acknowledgment of an earlier version (a bare time) still counts
+  const disk = (severity) => ({ id: 'disk:C:', kind: 'disk', severity, hold: 0 });
+  assert.equal(evaluate([disk('red')], { seen: { 'disk:C:': t0 }, acked: { 'disk:C:': { at: t0, severity: 'orange' } } }, t0 + min).active.length, 1);
+  assert.equal(evaluate([disk('orange')], { seen: { 'disk:C:': t0 }, acked: { 'disk:C:': t0 } }, t0 + min).active.length, 0);
 });
 
 test('the night span may cross midnight', async () => {
@@ -286,4 +310,14 @@ test('an extra block comes last, once every other block is at its richest, and n
   const paged = arrange([block(0, 300, { prio: 1 }), block(1, 300, { prio: 1 }), block(2, 200, { prio: 4 })], { cols: 1, height: 400, pager: 26 });
   assert.equal(paged.pages.length, 2);
   assert.equal(paged.blocks[2].mode, 'hidden');
+});
+
+test('the spacing between blocks is the same in every column of a page', async () => {
+  const { arrange } = await page('fit.js');
+  // three columns: one tight, one roomy, one with a single block
+  const blocks = [block(0, 400, { c2: 1 }), block(1, 400, { c2: 1 }), block(2, 200, { c2: 2 }), block(3, 200, { c2: 2 }), block(4, 300, { c2: 3 })];
+  const plan = arrange(blocks.map(({ c2, ...b }) => ({ ...b, col: c2 })), { cols: 3, height: 840, gap: 16 });
+  const spacings = plan.columns.map((c) => c.spacing);
+  assert.equal(spacings[0], spacings[1], 'the roomy column keeps the spacing of the tight one');
+  assert.ok(spacings[0] < 48);
 });

@@ -996,16 +996,21 @@ button { font: inherit; }
 .weekFeet span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .weekFeet b { color: var(--ink); font-weight: 600; }
 .weekFeet em { font-style: normal; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#mtAirMore { margin-top: 12px; }
+#mtAirCard { margin-top: 12px; padding: 14px 22px 14px; }
+#mtAirCard .bHead { margin-bottom: 6px; }
 .wkRow { padding-top: 5px; padding-bottom: 5px; }
 .pcUpdRows .relRow .dim { margin-left: 10px; font-weight: 400; }
 .pcUpdRows .rs.warn { color: var(--amber, #f0b35a); }
 
 /* A plot whose labels sit on its own top and bottom edges, and which takes the height its card grew by. */
-.plot { position: relative; }
-.plot .chartSide { top: 0; bottom: 0; }
-.fuelCard .chartBox { flex: 1 0 auto; display: flex; flex-direction: column; }
-.fuelCard .plot { flex: 1 1 auto; display: flex; min-height: 0; }
-.fuelCard .plot .chart { flex: 1 1 auto; height: auto; }
+/* The scale sits beside its plot, never over the line. */
+.plot { position: relative; display: flex; align-items: stretch; gap: 8px; }
+.plot .chart { flex: 1 1 auto; min-width: 0; }
+.plot .chartSide { position: static; order: 2; flex: none; text-align: right; }
+.fuelCard .chartBox { flex: 1 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.fuelSpark { flex: 1 1 0; display: grid; grid-template-columns: 9em 1fr; gap: 12px; align-items: stretch; min-height: 60px; }
+.fuelSpark .fl { display: flex; flex-direction: column; justify-content: center; gap: 2px; font-size: 13px; color: var(--ink-3); }
+.fuelSpark .fl b { font-size: 17px; font-weight: 600; color: var(--ink); }
+.fuelSpark .plot .chart { height: auto; min-height: 60px; }
 .fuelCard #fuelList { flex: 0 1 auto; min-height: 0; }
 @media (max-width: 760px) { .calGrid { grid-template-columns: repeat(16, 1fr); } }

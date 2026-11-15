@@ -59,6 +59,44 @@ const FIND = `(() => {
     const empty = box.bottom - bottom - parseFloat(getComputedStyle(card).paddingBottom || 0);
     if (empty > 0.15 * screen) bad.push(where(card) + ": " + Math.round(empty) + " px of the card are empty (" + Math.round((empty / screen) * 100) + " % of the screen)");
   }
+  // The plan of the home: the home covers at least 85 % of the side that limits it, and a
+  // plan limited by its width keeps no empty bands above and below it taller than 15 % of
+  // the screen (the card is given the height the home needs, no more). A plan squeezed by
+  // the height of a small screen has bands on its sides: they cannot go anywhere else.
+  const share = window.vigie.planShare && window.vigie.planShare();
+  const stage = document.getElementById("planStage");
+  if (share && stage && stage.offsetParent) {
+    const most = Math.max(share.w, share.h), band = share.w >= share.h ? (1 - share.h) * stage.clientHeight : 0;
+    if (most < 0.85) bad.push("#planStage: the home covers " + Math.round(most * 100) + " % of the side that limits it");
+    if (band > 0.15 * screen) bad.push("#planStage: " + Math.round(band) + " px of the plan are empty above and below the home (" + Math.round((band / screen) * 100) + " % of the screen)");
+  }
+  // On the Overview the gaps between the blocks one sees are the same everywhere: a bare
+  // block counts from its content, not from its box.
+  const overview = document.getElementById("tabOverview");
+  if (overview && !overview.hidden) {
+    const seen = (b) => {
+      if (b.classList.contains("card") || getComputedStyle(b).backgroundColor !== "rgba(0, 0, 0, 0)") return b.getBoundingClientRect();
+      let top = Infinity, bottom = -Infinity;
+      for (const el of b.querySelectorAll("*")) {
+        const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+        if ((el.firstElementChild && !ownText) || el.closest("[hidden]")) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width && r.height) { top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom); }
+      }
+      return top < bottom ? { top, bottom, left: b.getBoundingClientRect().left } : null;
+    };
+    const cols = {};
+    for (const b of overview.querySelectorAll(".block:not(.fitHide)")) {
+      if (b.closest("[hidden]") || !b.offsetParent) continue;
+      const r = seen(b);
+      if (r) (cols[Math.round(b.getBoundingClientRect().left)] = cols[Math.round(b.getBoundingClientRect().left)] || []).push(r);
+    }
+    for (const list of Object.values(cols)) {
+      list.sort((a, b) => a.top - b.top);
+      const gaps = list.slice(1).map((r, i) => r.top - list[i].bottom);
+      if (gaps.length > 1 && Math.max(...gaps) - Math.min(...gaps) > 8) bad.push("#tabOverview: uneven gaps between the blocks, " + gaps.map(Math.round).join(", ") + " px");
+    }
+  }
   return bad;
 })()`;
 

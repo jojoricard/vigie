@@ -402,9 +402,9 @@ test('a lamp silent on the LAN is only shown through the cloud when the cloud re
   const stateWith = async (answer) => (await createService(cfg, { 'govee-lan': lan, 'govee-cloud': cloud(answer) }).handle('GET', '/devices/lamp'))[1];
   // LAN Control is off but the lamp has power: the cloud stands in
   assert.deepEqual((await stateWith({ reachable: true, on: true, brightness: 60 })).state, { reachable: true, on: true, brightness: 60, via: 'cloud' });
-  // switched off at the wall: the cloud has lost it too, and it is not shown lit
-  const cut = await stateWith({ reachable: false, error: 'offline' });
-  assert.deepEqual([cut.state, cut.capabilities], [{ reachable: false, error: 'lanSilent' }, {}]);
+  // switched off at the wall: the cloud has lost it too, says so, and it is not shown lit
+  const cut = await stateWith({ reachable: false, error: 'cloudOffline' });
+  assert.deepEqual([cut.state, cut.capabilities], [{ reachable: false, error: 'cloudOffline', via: 'cloud' }, {}]);
   // no internet: the same, and no error of the cloud on the tile of the lamp
   assert.deepEqual((await stateWith(new DeviceError('Govee: fetch failed'))).state, { reachable: false, error: 'lanSilent' });
 });

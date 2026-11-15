@@ -8,7 +8,7 @@ import { refreshWeather, renderCityTabs, refreshAqi, refreshSnow, refreshAlerts,
 import { refreshEnergy, renderEnergy, refreshYear } from "./energy.js";
 import { refreshSensors, refreshSparks, refreshHistory, initHistControls, refreshMarkers, drawHistory, refreshSystem, refreshDevices } from "./system.js";
 import { refreshMachine, refreshChanges, refreshCrash, refreshNetwork, refreshWindows, wireMachine, renderBox } from "./machine.js";
-import { refreshHouse, houseTabShown, openDetail, lookAtPlan } from "./house.js";
+import { refreshHouse, houseTabShown, openDetail, lookAtPlan, planShare } from "./house.js";
 import { refreshMedia } from "./media.js";
 import { refreshTools, refreshFuel, refreshPcUpdates, toolsLeft } from "./tools.js";
 import { queueBriefing } from "./briefing.js";
@@ -182,6 +182,7 @@ function expose() {
     view: async (v) => { if (tab === "weather") setWeatherView(v); await frame(); },
     pages: () => Math.max(1, pagesOf(box())),
     layout: () => layoutOf(box()),
+    planShare: () => planShare(),
     page: async (i) => { setPage(box(), i); await frame(); },
     devices: () => ((state.house && state.house.rooms) || []).flatMap((r) => r.devices).filter((d) => !d.state.reachable || Object.keys(d.capabilities).length).map((d) => d.id),
     panels: () => [...document.querySelectorAll("[data-panel]")].filter((el) => !el.closest("[hidden]")).map((el) => el.dataset.panel),

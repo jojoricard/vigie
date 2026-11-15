@@ -79,7 +79,7 @@ function create({ apiKey, fetch: fetchImpl = fetch, now = Date.now }) {
     const caps = (j.payload && j.payload.capabilities) || [];
     const val = (instance) => { const c = caps.find((x) => x.instance === instance); return c && c.state ? c.state.value : null; };
     // offline (no power, no Wi-Fi): Govee then answers with the last values it knew, which say nothing of now
-    if (val('online') === false) return { reachable: false, error: 'offline' };
+    if (val('online') === false) return { reachable: false, error: 'cloudOffline' };
     const kelvin = val('colorTemperatureK') || null;
     const out = { reachable: true, on: !!val('powerSwitch'), brightness: val('brightness'), colorRgb: kelvin ? null : val('colorRgb'), colorTempK: kelvin };
     // Govee does not say which effect plays: the last one asked for here is remembered

@@ -265,8 +265,8 @@ function tileHtml(d) {
   const s = d.state, id = esc(d.id), room = esc(roomOf(d).name);
   const error = errors.get(d.id);
   if (!s.reachable) {
-    // a lamp silent on the LAN says so in a word, its panel explains and tells what to do
-    const why = s.error === "lanSilent" ? t("house.lanSilentShort") : t("unreachable");
+    // a lamp silent on the LAN, or lost by the cloud, says so in a word; its panel explains and tells what to do
+    const why = s.error === "lanSilent" ? t("house.lanSilentShort") : s.error === "cloudOffline" ? t("house.cloudOfflineShort") : t("unreachable");
     return `<div class="tile gone" data-device="${id}" data-room="${esc(d.room)}" title="${esc(s.error || "")}"><span class="tileIcon">${deviceIcon(d)}</span>
       <span class="tileText"><span class="tileName">${esc(d.name)}</span><span class="tileState">${room} · ${why}</span></span>
       <button type="button" class="tileMore" data-more="${id}" aria-label="${t("house.details", esc(d.name))}">${icon("dots")}</button></div>`;
@@ -373,10 +373,10 @@ function detailTabs(d) {
 }
 
 function helpBlocks(d) {
-  const lan = d.state.error === "lanSilent";
-  return block(`<p class="helpText">${lan ? t("help.lanSilent") : t("help.unreachable")}</p>`)
+  const lan = d.state.error === "lanSilent", cloud = d.state.error === "cloudOffline";
+  return block(`<p class="helpText">${lan ? t("help.lanSilent") : cloud ? t("help.cloudOffline") : t("help.unreachable")}</p>`)
     + (lan ? block(`<ol class="helpText helpSteps">${t("help.lanSteps").map((x) => `<li>${x}</li>`).join("")}</ol>`) : "")
-    + (!lan && d.state.error ? block(`<div class="detailError">${esc(d.state.error)}</div>`) : "");
+    + (!lan && !cloud && d.state.error ? block(`<div class="detailError">${esc(d.state.error)}</div>`) : "");
 }
 
 /* Every control stays live on a device that is off: a mode, a target or a fan speed
@@ -745,9 +745,34 @@ function drawPlan() {
    (tileLayout): small cards, rows, tight rows. When even tight rows do not fit, the grid
    keeps whole rows and the others wait on its next page. */
 function sizeHouse() {
-  const pane = $("tabHouse");
+  const pane = $("tabHouse"), card = $("planCard"), stage = $("planStage");
   if (pane.hidden) return;
-  $("planCard").dataset.hn = Math.round(pane.clientHeight * 0.5);
+  // never taller than the home needs at this width: the rest goes to the tiles or between the
+  // blocks, not into empty bands above and below the model
+  const chrome = card.offsetHeight - stage.clientHeight, tallest = pane.clientHeight - chrome;
+  const natural = stage.clientWidth > 0 && plan ? planHeightFor(stage, tallest) : null;
+  const hmax = natural ? Math.max(Number(card.dataset.hmin) || 240, chrome + natural) : null;
+  const hn = Math.round(pane.clientHeight * 0.5);
+  const before = card.dataset.hmax;
+  card.dataset.hn = hmax ? Math.min(hn, hmax) : hn;
+  if (hmax) card.dataset.hmax = hmax; else delete card.dataset.hmax;
+  return before !== card.dataset.hmax;
+}
+// The height the model (or the flat plan) needs to fill the width of the stage.
+function planHeightFor(stage, tallest) {
+  if (planView && planView.naturalHeight) return planView.naturalHeight(stage.clientWidth, tallest);
+  const svg = stage.querySelector("svg"), box = svg && svg.viewBox && svg.viewBox.baseVal;
+  return box && box.width ? Math.min(tallest, Math.round(stage.clientWidth * box.height / box.width)) : null;
+}
+// What the home covers of the plan, across and up (scripts/check-scroll.js).
+export function planShare() {
+  const stage = $("planStage");
+  if (!plan || $("planCard").hidden || !stage.clientWidth) return null;
+  if (planView && planView.share) return planView.share();
+  const svg = stage.querySelector("svg"), box = svg && svg.viewBox && svg.viewBox.baseVal;
+  if (!box || !box.width) return null;
+  const k = Math.min(stage.clientWidth / box.width, stage.clientHeight / box.height);
+  return { w: (box.width * k) / stage.clientWidth, h: (box.height * k) / stage.clientHeight };
 }
 function lookOfTiles() {
   const grid = $("tileGrid"), blockEl = $("tilesBlock"), count = grid.children.length;
@@ -899,7 +924,7 @@ function wire() {
   // crossing the width under which the model gives way to the flat view
   matchMedia(NARROW).addEventListener("change", render);
   addEventListener("resize", sizeHouse);
-  tab.addEventListener("fit", lookOfTiles);
+  tab.addEventListener("fit", () => { lookOfTiles(); if (sizeHouse()) queueFit(); });      // the width of the plan is only known once placed
   $("modulesBtn").dataset.panel = "modules";
 
   detailEl.addEventListener("click", (e) => {

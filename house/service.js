@@ -62,6 +62,8 @@ function createService(cfg = {}, drivers = {}, { readPlan = null, home = null, m
         // cloud remembers of it (on, at 60 %) is its past, and the lamp stays silent rather than lit
         const cloud = await cloudFor(device).state(device).catch((e) => { if (e instanceof DeviceError) return { reachable: false }; throw e; });
         if (cloud.reachable) { via = cloudFor(device); state = { ...cloud, via: 'cloud' }; }
+        // the cloud says it has lost the lamp: a better word than silence on a LAN it never listens to
+        else if (cloud.error === 'cloudOffline') state = { reachable: false, error: 'cloudOffline', via: 'cloud' };
       }
       return { capabilities: state.reachable ? await via.capabilities(device) : {}, state };
     } catch (e) {
@@ -122,7 +124,7 @@ function createService(cfg = {}, drivers = {}, { readPlan = null, home = null, m
 
   async function apply(device, changes) {
     const current = await view(device, true);
-    if (!current.state.reachable) throw new DeviceError(current.state.error === 'lanSilent' ? `${device.name}: no answer on the LAN` : current.state.error);
+    if (!current.state.reachable) throw new DeviceError(current.state.error === 'lanSilent' ? `${device.name}: no answer on the LAN` : current.state.error === 'cloudOffline' ? `${device.name}: offline for Govee` : current.state.error);
     const valid = validate(expand(changes), current.capabilities);
     const driver = current.state.via === 'cloud' ? cloudFor(device) : driverOf(device);
     await driver.set(device, valid);
@@ -142,9 +144,9 @@ function createService(cfg = {}, drivers = {}, { readPlan = null, home = null, m
           results.push({ device: device.id, ok: true });
         } catch (e) {
           if (!(e instanceof DeviceError) && !(e instanceof RangeError)) throw e;
-          // a lamp cut at its wall switch is silent, and off: asked to turn off, it has followed
+          // a lamp cut at its wall switch is silent (or lost by the cloud), and off: asked to turn off, it has followed
           const offOnly = Object.keys(action.set || {}).length === 1 && action.set.on === false;
-          const silent = offOnly && (await view(device)).state.error === 'lanSilent';
+          const silent = offOnly && ['lanSilent', 'cloudOffline'].includes((await view(device)).state.error);
           results.push(silent ? { device: device.id, ok: true, skipped: 'no power' } : { device: device.id, ok: false, error: e.message });
         }
       }

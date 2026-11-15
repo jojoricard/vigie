@@ -68,3 +68,14 @@ test('without LHM\'s memory module, the RAM load comes from the OS', () => {
   // LHM's own figure wins when it is there
   assert.equal(withFallbacks(parseLhm(tree)).ramLoad, 55);
 });
+
+test('a graphics card that stops its fans at rest keeps its line, at 0 rpm and stopped', () => {
+  const idle = (gpu) => node('Sensor', [node('PC', [node('GPU', gpu), node('Motherboard', [sensor('Fan #2', 'Fan', '/lpc/nct6796dr/0/fan/1', '0 RPM')])])]);
+  const p = parseLhm(idle([sensor('GPU Fan', 'Fan', '/gpu-amd/0/fan/0', '0 RPM'), sensor('GPU Fan', 'Control', '/gpu-amd/0/control/0', '0,0 %')]));
+  assert.deepEqual(p.fans, [{ name: 'GPU Fan', source: 'gpu', rpm: 0, stopped: true }], 'the empty motherboard header stays out');
+  assert.equal(toSample(p).fg, 0);
+  // a card that drops the rpm sensor when idle and keeps only the duty cycle
+  const q = parseLhm(idle([sensor('GPU Fan', 'Control', '/gpu-amd/0/control/0', '0,0 %')]));
+  assert.deepEqual(q.fans, [{ name: 'GPU Fan', source: 'gpu', rpm: 0, stopped: true }]);
+  assert.deepEqual(parseLhm(idle([sensor('GPU Fan', 'Control', '/gpu-amd/0/control/0', '30,0 %')])).fans, [], 'turning but unread: nothing made up');
+});

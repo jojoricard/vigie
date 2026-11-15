@@ -486,7 +486,7 @@ test('govee-cloud: a lamp the cloud has lost is unreachable, whatever the cloud 
   ] } });
   const lamp = { sku: 'H0000', device: '00:00:5E:00:53:01:00:01' };
   const off = goveeCloud.create({ apiKey: 'k', fetch: async () => new Response(JSON.stringify(answer(false)), { status: 200 }) });
-  assert.deepEqual(await off.state(lamp), { reachable: false, error: 'offline' });
+  assert.deepEqual(await off.state(lamp), { reachable: false, error: 'cloudOffline' });
   const on = goveeCloud.create({ apiKey: 'k', fetch: async () => new Response(JSON.stringify(answer(true)), { status: 200 }) });
   assert.deepEqual(await on.state(lamp), { reachable: true, on: true, brightness: 60, colorRgb: null, colorTempK: null });
 });

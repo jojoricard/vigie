@@ -305,6 +305,7 @@ function renderTiles() {
   const kv = (k, v) => `<div><span class="k">${k}</span><span class="v num">${v}</span></div>`, ug = (v) => `${Math.round(v)} µg/m³`;
   $("mtAirMore").innerHTML = !air ? "" : [["PM2.5", air.pm2_5], ["PM10", air.pm10], ["NO₂", air.nitrogen_dioxide], ["O₃", air.ozone]].filter(([, v]) => v != null).map(([k, v]) => kv(k, ug(v))).join("")
     + POLLENS.filter((k) => air[k] >= 1).map((k) => kv(pollenName(k), `<span style="color:${pollenLevel(air[k])[1]}">${pollenLevel(air[k])[0]}</span>`)).join("");
+  $("mtAirMeta").textContent = air && state.cities[state.sel] ? state.cities[state.sel].short : "";
   $("mtTilesBlock").toggleAttribute("data-rich", !!air);
 }
 

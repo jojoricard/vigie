@@ -57,6 +57,9 @@ function sensorProblem(msg) {
   $("sysList").innerHTML = "";
 }
 
+// A card at rest stops its fans: said, rather than the line left out.
+export const fanText = (f) => f.stopped || !f.rpm ? `0 ${t("unit.rpm")} · ${t("fan.stopped")}` : `${nb(f.rpm)} ${t("unit.rpm")}`;
+
 // A 502 means LibreHardwareMonitor is down; no answer at all means the agent is.
 // After 3 failed polls the page reloads once the agent is back, to start clean.
 let agentFails = 0;
@@ -83,10 +86,10 @@ export async function refreshSensors() {
     meter("ram", "RAM", d.ramLoad, d.ramUsed != null ? `${dec(d.ramUsed)} ${t("unit.gb")}${state.totalRamGb ? `<span class="dim">/ ${Math.round(state.totalRamGb)} ${t("unit.gb")}</span>` : ""}` : "");
   // the same three gauges on the Overview, and in its rich look what a glance at the GPU and the line wants
   $("ovMeters").innerHTML = $("meters").innerHTML;
-  const gpuFan = d.fans.find((f) => /gpu/i.test(f.name));
+  const gpuFan = d.fans.find((f) => f.source === "gpu");
   const kv = (k, v) => `<div><span class="k">${k}</span><span class="v num">${v}</span></div>`;
   $("ovSysMore").innerHTML = [
-    gpuFan ? kv(t("sys.gpuFan"), `${nb(gpuFan.rpm)} ${t("unit.rpm")}`) : "",
+    gpuFan ? kv(t("sys.gpuFan"), fanText(gpuFan)) : "",
     d.gpuHot != null ? kv(t("sys.hotspot"), tempSpan(d.gpuHot, 95, THRESHOLDS.gpuHot, `${Math.round(d.gpuHot)} °C`)) : "",
     d.liquidTemp != null ? kv(t("sys.liquid"), tempSpan(d.liquidTemp, 40, THRESHOLDS.liquid, `${dec(d.liquidTemp)} °C`)) : "",
     d.net ? kv(t("sys.network"), `↓ ${fmtBps(d.net.down)}&nbsp;&nbsp;↑ ${fmtBps(d.net.up)}`) : "",
@@ -111,7 +114,7 @@ export async function refreshSensors() {
     d.liquidTemp != null ? row(t("sys.liquid"), tempSpan(d.liquidTemp, 40, THRESHOLDS.liquid, `${dec(d.liquidTemp)} °C`)) : "",
     d.gpuHot != null || d.gpuVram != null ? row(t("sys.gpuDetail"), `${tc(d.gpuHot, 95, THRESHOLDS.gpuHot)} / ${tc(d.gpuVram, 90, THRESHOLDS.gpuVram)} °C`) : "",
     d.ramTemp != null ? row(t("sys.ramTemp"), tempSpan(d.ramTemp, 60, THRESHOLDS.ram, `${Math.round(d.ramTemp)} °C`)) : "",
-    ...d.fans.map((f) => row(esc(f.name) + (names[f.name] > 1 ? " · " + t("fan." + f.source) : ""), `${nb(f.rpm)} ${t("unit.rpm")}`)),
+    ...d.fans.map((f) => row(esc(f.name) + (names[f.name] > 1 ? " · " + t("fan." + f.source) : ""), fanText(f))),
   ].join("");
   renderSsd(d.ssd);
 }
