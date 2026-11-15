@@ -14,7 +14,7 @@ const { SourceError, logError } = require('./lib/errors');
 const storage = require('./lib/storage');
 const sensors = require('./lib/sensors');
 const { pingTcp, networkSummary } = require('./lib/network');
-const { topProcesses, devices } = require('./lib/system');
+const { devices } = require('./lib/system');
 const weather = require('./lib/weather');
 const energy = require('./lib/energy');
 const { crashReport } = require('./lib/crash');
@@ -24,9 +24,9 @@ const house = require('./house/server');
 const briefing = require('./lib/briefing');
 const { holidays } = require('./lib/calendar');
 const { fuel } = require('./lib/fuel');
-const { checkServices, services } = require('./lib/services');
 const { windowsStatus } = require('./lib/windows');
 const media = require('./lib/media');
+const demo = require('./lib/demo');
 
 /* ---------- Config ---------- */
 function fail(message) {
@@ -48,11 +48,16 @@ function loadConfig(file) {
   return cfg;
 }
 
+/* --demo shows the page on made-up figures (lib/demo.js): no config.json, no database,
+ * no sensor, no job. --port and --lang are there for the captures and the layout check. */
+const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
+const DEMO = process.argv.includes('--demo');
+
 ctx.root = __dirname;
-ctx.cfg = loadConfig(path.join(__dirname, 'config.json'));
+ctx.cfg = DEMO ? demo.config(arg('lang')) : loadConfig(path.join(__dirname, 'config.json'));
 ctx.lang = ctx.cfg.lang === 'fr' ? 'fr' : 'en';
-ctx.db = storage.openDatabase(path.join(__dirname, 'vigie.db'));
-const PORT = ctx.cfg.port || 5252;
+if (!DEMO) ctx.db = storage.openDatabase(path.join(__dirname, 'vigie.db'));
+const PORT = Number(arg('port')) || ctx.cfg.port || 5252;
 
 /* ---------- Static files ----------
  * Only the files found in public/ at startup are served, through a fixed table:
@@ -97,19 +102,23 @@ function readJson(req) {
   });
 }
 
-const GET = {
-  '/config': () => ({
-    lang: ctx.lang,
-    country: ctx.cfg.country || null,
-    cities: ctx.cfg.cities,
-    snowSpots: ctx.cfg.snowSpots || [],
-    dimming: ctx.cfg.dimming || null,
-    theme: ctx.cfg.theme || null,
-    hasBriefing: !!ctx.cfg.anthropicApiKey,
-    briefing: briefing.settings(),
-  }),
+const pageConfig = () => ({
+  lang: ctx.lang,
+  country: ctx.cfg.country || null,
+  cities: ctx.cfg.cities,
+  snowSpots: ctx.cfg.snowSpots || [],
+  dimming: ctx.cfg.dimming || null,
+  night: ctx.cfg.night || null,
+  alerts: ctx.cfg.alerts || null,
+  theme: ctx.cfg.theme || null,
+  hasBriefing: !!ctx.cfg.anthropicApiKey,
+  briefing: briefing.settings(),
+});
+
+const LIVE = {
+  '/config': pageConfig,
   '/sensors': sensors.readSensors,
-  '/system': async () => ({ uptime: os.uptime(), processes: await topProcesses() }),
+  '/system': () => ({ uptime: os.uptime() }),
   '/devices': devices,
   '/alerts': weather.alerts,
   '/nameday': weather.nameDay,
@@ -124,13 +133,24 @@ const GET = {
   '/releases': machine.releases,
   '/holidays': holidays,
   '/fuel': fuel,
-  '/services': services,
   '/windows': windowsStatus,
   '/media': media.nowPlaying,
+  '/history': (url) => history(url.searchParams.get('range')),
+};
+const GET = !DEMO ? LIVE : {
+  ...demo.GET,
+  '/config': () => demo.configRoute(pageConfig()),
+  '/history': (url) => demo.history(url.searchParams.get('range')),
+  // what the page would ask Open-Meteo: the demo answers it here, a capture needs no network
+  '/demo/ext': (url) => demo.external(url.searchParams.get('u') || '') || {},
 };
 
 // Routes that act: POST only, same origin only.
-const POST = {
+const POST = DEMO ? {
+  '/open': async () => [200, { ok: true }],
+  '/briefing': async () => [200, demo.briefing(ctx.lang)],
+  '/media': async () => [200, { ok: true }],
+} : {
   // Default browser (main screen), not the kiosk. Known links only.
   '/open': async (url) => {
     const u = url.searchParams.get('url');
@@ -144,8 +164,9 @@ const POST = {
 
 /* The house (lights, air conditioners, heaters) is a service of its own, with its own
  * API under /api/v1 (house/API.md). It runs inside the agent by default and is meant to
- * move to a machine that stays on: Vigie is only one of its clients. */
-const houseApi = house.mount(ctx.cfg.house);
+ * move to a machine that stays on: Vigie is only one of its clients. With house.remote
+ * set, the agent starts none and relays /api/v1 to the one running there. */
+const houseApi = DEMO ? house.mount(ctx.cfg.house, { baseDir: path.join(__dirname, 'house', 'demo') }) : house.mount(ctx.cfg.house);
 
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
@@ -155,7 +176,6 @@ async function route(req, res) {
     return send(res, 200, fs.readFileSync(file), MIME[path.extname(file)]);
   }
   if (req.method === 'GET' && GET[p]) return send(res, 200, await GET[p](url));
-  if (req.method === 'GET' && p === '/history') return send(res, 200, history(url.searchParams.get('range')));
   if (p.startsWith(house.PREFIX)) return houseApi(req, res);
   if (req.method === 'POST' && POST[p]) {
     if (!sameOrigin(req)) return send(res, 403, { error: 'origin refused' });
@@ -222,16 +242,17 @@ function every(ms, name, fn) {
   setInterval(run, ms);
 }
 
-every(30000, 'sample', sample);
-every(3600 * 1000, 'trim', storage.storeTrim);
-energy.backfillDaily();
-// Daily summary recomputed often so it runs before the samples are purged.
-every(10 * 60 * 1000, 'daily', energy.rollupDaily);
-// Disk space: one reading per hour, the day keeps the median (disk drop alert).
-every(3600 * 1000, 'disk', energy.rollupDisk);
-every(3600 * 1000, 'backup', storage.backupDaily);
-every(5 * 60 * 1000, 'services', checkServices);
+if (!DEMO) {
+  every(30000, 'sample', sample);
+  every(3600 * 1000, 'trim', storage.storeTrim);
+  energy.backfillDaily();
+  // Daily summary recomputed often so it runs before the samples are purged.
+  every(10 * 60 * 1000, 'daily', energy.rollupDaily);
+  // Disk space: one reading per hour, the day keeps the median (disk drop alert).
+  every(3600 * 1000, 'disk', energy.rollupDisk);
+  every(3600 * 1000, 'backup', storage.backupDaily);
+}
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Vigie: http://localhost:${PORT}`);
+  console.log(`Vigie${DEMO ? ' (demo)' : ''}: http://localhost:${PORT}`);
 });

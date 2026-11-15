@@ -55,6 +55,8 @@ test('daikin: energy adds heating and cooling of this unit, in kWh', async () =>
     week: 20.4,            // the first 7 days of each list: 203 heating + 1 cooling
     month: 56,             // November: 559 heating + 1 cooling
     year: 224.1,
+    // week_heat 4/12/19/22/43/67/36 and week_cool 0/0/0/0/0/0/1, today first
+    days: [{ heat: 0.4, cool: 0 }, { heat: 1.2, cool: 0 }, { heat: 1.9, cool: 0 }, { heat: 2.2, cool: 0 }, { heat: 4.3, cool: 0 }, { heat: 6.7, cool: 0 }, { heat: 3.6, cool: 0.1 }],
   });
 });
 
@@ -401,6 +403,92 @@ test('govee-cloud: state and commands go through the cloud API with the key', as
   await driver.set(device, { on: false, colorTempK: 3000 });
   assert.deepEqual(calls.slice(1).map((c) => [c.body.capability.instance, c.body.capability.value]), [['powerSwitch', 0], ['colorTemperatureK', 3000]]);
   assert.ok(calls.every((c) => c.key === 'test-key'));
+});
+
+test('daikin: demand control is offered by a unit that has it, read and set as off, auto or a ceiling', async () => {
+  const withDemand = { '/aircon/get_model_info': MODEL + ',dmnd=1', '/aircon/get_demand_control': 'ret=OK,type=1,en_demand=1,mode=0,max_pow=70,scdl_per_day=4,moc=0,tuc=0,wec=0,thc=0,frc=0,sac=0,suc=0', '/aircon/set_demand_control': 'ret=OK' };
+  const unit = fakeUnit(withDemand), device = { id: 'ac', name: 'AC', ip: '192.0.2.20' };
+  const caps = await unit.driver.capabilities(device);
+  assert.deepEqual([caps.demand, caps.demandMax], [{ options: ['off', 'auto', 'manual'] }, { min: 40, max: 100, step: 5 }]);
+  const state = await unit.driver.state(device);
+  assert.deepEqual([state.demand, state.demandMax], ['manual', 70]);
+  assert.equal(unit.calls.filter((c) => c === '/aircon/get_model_info').length, 1, 'the model is asked once, even by two questions at a time');
+  await unit.driver.set(device, { demand: 'auto' });
+  assert.deepEqual(sent(unit.calls, '/aircon/set_demand_control'), { type: '1', en_demand: '1', mode: '2', max_pow: '70' });
+  unit.calls.length = 0;
+  await unit.driver.set(device, { demandMax: 52 });
+  assert.deepEqual(sent(unit.calls, '/aircon/set_demand_control'), { type: '1', en_demand: '1', mode: '0', max_pow: '50' }, 'a ceiling is a manual limit, by steps of 5');
+  unit.calls.length = 0;
+  await unit.driver.set(device, { demand: 'off' });
+  assert.deepEqual(sent(unit.calls, '/aircon/set_demand_control'), { type: '1', en_demand: '0' });
+  // off on the unit, and a unit without the feature
+  assert.equal((await fakeUnit({ ...withDemand, '/aircon/get_demand_control': 'ret=OK,type=1,en_demand=0,mode=2,max_pow=100' }).driver.state(device)).demand, 'off');
+  const plain = fakeUnit();
+  assert.equal('demand' in await plain.driver.capabilities(device), false);
+  assert.equal('demand' in await plain.driver.state(device), false);
+  assert.ok(!plain.calls.includes('/aircon/get_demand_control'), 'a unit that does not announce it is not asked');
+  // announced by the model but refused by the firmware: no control rather than a broken one
+  assert.equal('demand' in await fakeUnit({ '/aircon/get_model_info': MODEL + ',dmnd=1' }).driver.capabilities(device), false);
+});
+
+test('govee-cloud: scenes, DIY scenes and music modes come from the lists of the cloud and go back as given', async () => {
+  const calls = [];
+  let clock = 0;
+  const lamp = { name: 'Lamp', sku: 'H0000', device: '00:00:5E:00:53:01:00:01' };
+  const fetchImpl = async (url, opts = {}) => {
+    const body = opts.body ? JSON.parse(opts.body).payload : null, route = url.replace(/^.*\/v1/, '');
+    calls.push([route, body && body.capability]);
+    const answers = {
+      '/device/state': { code: 200, payload: { capabilities: [{ instance: 'online', state: { value: true } }, { instance: 'powerSwitch', state: { value: 1 } }, { instance: 'brightness', state: { value: 30 } }, { instance: 'colorRgb', state: { value: 255 } }] } },
+      '/device/scenes': { code: 200, payload: { capabilities: [{ type: 'devices.capabilities.dynamic_scene', instance: 'lightScene', parameters: { dataType: 'ENUM', options: [{ name: 'Sunrise', value: { paramId: 4280, id: 3853 } }, { name: 'Sunset', value: { paramId: 4281, id: 3854 } }, { name: 'Sunrise', value: { paramId: 1, id: 1 } }] } }] } },
+      '/device/diy-scenes': { code: 200, payload: { capabilities: [{ type: 'devices.capabilities.diy_color_setting', instance: 'diyScene', parameters: { dataType: 'ENUM', options: [{ name: 'Mine', value: 8216930 }] } }] } },
+      '/user/devices': { code: 200, data: [{ sku: 'H0000', device: lamp.device, deviceName: 'Lamp', capabilities: [{ type: 'devices.capabilities.music_setting', instance: 'musicMode', parameters: { dataType: 'STRUCT', fields: [
+        { fieldName: 'musicMode', dataType: 'ENUM', options: [{ name: 'Energic', value: 5 }, { name: 'Rhythm', value: 3 }] }, { fieldName: 'sensitivity', dataType: 'INTEGER' }] } }] }] },
+      '/device/control': { code: 200 },
+    };
+    return new Response(JSON.stringify(answers[route]), { status: 200 });
+  };
+  const driver = goveeCloud.create({ apiKey: 'k', fetch: fetchImpl, now: () => clock });
+  const caps = await driver.capabilities(lamp);
+  assert.deepEqual([caps.scene, caps.diy, caps.music], [{ options: ['Sunrise', 'Sunset'] }, { options: ['Mine'] }, { options: ['Energic', 'Rhythm'] }]);
+  await driver.capabilities(lamp);
+  assert.equal(calls.length, 3, 'the lists are asked once, not at every reading');
+  await driver.set(lamp, { scene: 'Sunset' });
+  assert.deepEqual(calls.pop()[1], { type: 'devices.capabilities.dynamic_scene', instance: 'lightScene', value: { paramId: 4281, id: 3854 } });
+  assert.equal((await driver.state(lamp)).scene, 'Sunset', 'the cloud does not say what plays: the last scene asked for is remembered');
+  await driver.set(lamp, { diy: 'Mine' });
+  assert.deepEqual(calls.pop()[1], { type: 'devices.capabilities.diy_color_setting', instance: 'diyScene', value: 8216930 }, 'sent back with the type the list gave');
+  await driver.set(lamp, { music: 'Rhythm' });
+  assert.deepEqual(calls.pop()[1].value, { musicMode: 3, sensitivity: 50, autoColor: 1 });
+  await driver.set(lamp, { colorRgb: 0xff0000 });
+  const plain = await driver.state(lamp);
+  assert.ok(!('scene' in plain) && !('music' in plain) && !('diy' in plain), 'a plain color ends the effect');
+  await assert.rejects(driver.set(lamp, { scene: 'Nope' }), /no such scene/);
+  // as little as possible goes to Govee: the state once a minute, whatever the page asks
+  await driver.state(lamp);
+  calls.length = 0;
+  for (let i = 0; i < 5; i++) { await driver.state(lamp); clock += 10000; }
+  assert.equal(calls.filter((c) => c[0] === '/device/state').length, 0, 'read after the last command: nothing more for a minute');
+  clock += 20000;
+  await driver.state(lamp);
+  assert.equal(calls.filter((c) => c[0] === '/device/state').length, 1);
+  // a list that fails leaves the lamp its plain controls
+  const bare = goveeCloud.create({ apiKey: 'k', fetch: async (url) => new Response(JSON.stringify(url.endsWith('/state') ? { code: 200, payload: { capabilities: [] } } : { code: 500, msg: 'down' }), { status: 500 }) });
+  assert.deepEqual(Object.keys(await bare.capabilities(lamp)), ['on', 'brightness', 'colorRgb', 'colorTempK']);
+});
+
+test('govee-cloud: a lamp the cloud has lost is unreachable, whatever the cloud remembers of it', async () => {
+  // what Govee answers for a lamp switched off at the wall: offline, and its last values (on, 60 %)
+  const answer = (online) => ({ code: 200, payload: { capabilities: [
+    { type: 'devices.capabilities.online', instance: 'online', state: { value: online } },
+    { type: 'devices.capabilities.on_off', instance: 'powerSwitch', state: { value: 1 } },
+    { type: 'devices.capabilities.range', instance: 'brightness', state: { value: 60 } },
+  ] } });
+  const lamp = { sku: 'H0000', device: '00:00:5E:00:53:01:00:01' };
+  const off = goveeCloud.create({ apiKey: 'k', fetch: async () => new Response(JSON.stringify(answer(false)), { status: 200 }) });
+  assert.deepEqual(await off.state(lamp), { reachable: false, error: 'offline' });
+  const on = goveeCloud.create({ apiKey: 'k', fetch: async () => new Response(JSON.stringify(answer(true)), { status: 200 }) });
+  assert.deepEqual(await on.state(lamp), { reachable: true, on: true, brightness: 60, colorRgb: null, colorTempK: null });
 });
 
 test('govee-cloud: a refusal carries the reason given by Govee', async () => {

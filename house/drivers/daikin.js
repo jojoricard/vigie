@@ -37,6 +37,8 @@ const codeOf = (map, name) => Object.keys(map).find((k) => map[k] === name);
 // "adv" lists the special modes that are on: "2" powerful, "12" econo, "13" streamer, "2/13"…
 const ADV = { powerful: '2', econo: '12', streamer: '13' };
 const SPMODE_KIND = { powerful: '1', econo: '2' };
+// get_demand_control: how the ceiling on the power of the unit is decided
+const DEMAND = { 0: 'manual', 1: 'schedule', 2: 'auto' };
 
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };   // "-", "M" and "--" are not numbers
 const sum = (list) => String(list || '').split('/').reduce((s, x) => s + (parseInt(x, 10) || 0), 0);
@@ -53,6 +55,8 @@ function energy(day, week, year, month) {
     today: kwh(sum(day.curr_day_heat) + sum(day.curr_day_cool)),
     yesterday: kwh(sum(day.prev_1day_heat) + sum(day.prev_1day_cool)),
     week: kwh(heat.slice(0, 7).concat(cool.slice(0, 7)).reduce((a, b) => a + b, 0)),
+    // the last seven days, today first, heating and cooling apart
+    days: heat.slice(0, 7).map((h, i) => ({ heat: kwh(h), cool: kwh(cool[i] || 0) })),
     month: kwh((months('curr_year_heat')[month] || 0) + (months('curr_year_cool')[month] || 0)),
     year: kwh(sum(year.curr_year_heat) + sum(year.curr_year_cool)),
   };
@@ -188,7 +192,8 @@ function create({ get = httpGet, now = Date.now } = {}) {
   const optional = (device, path) => call(device, path).catch((e) => { if (!(e instanceof DeviceError)) throw e; return null; });
 
   async function model(device) {
-    if (!models.has(device.ip)) models.set(device.ip, await call(device, '/aircon/get_model_info'));
+    // the answer being fetched is shared: two questions asked together cost one request
+    if (!models.has(device.ip)) models.set(device.ip, call(device, '/aircon/get_model_info').catch((e) => { models.delete(device.ip); throw e; }));
     return models.get(device.ip);
   }
 
@@ -205,6 +210,12 @@ function create({ get = httpGet, now = Date.now } = {}) {
     if (m.en_fdir === '1') caps.swing = { options: m.s_fdir === '3' ? ['off', 'vertical', 'horizontal', 'both'] : ['off', 'vertical'] };
     if ('adv' in c) { caps.powerful = { type: 'boolean' }; caps.econo = { type: 'boolean' }; }
     if ('en_streamer' in c) caps.streamer = { type: 'boolean' };
+    // demand control caps the power the unit may draw: off, a ceiling chosen by hand, or left to the unit
+    const demand = m.dmnd === '1' ? await optional(device, '/aircon/get_demand_control') : null;
+    if (demand && 'en_demand' in demand) {
+      caps.demand = { options: demand.mode === '1' ? ['off', 'auto', 'manual', 'schedule'] : ['off', 'auto', 'manual'] };
+      caps.demandMax = { min: 40, max: 100, step: 5 };
+    }
     // the weekly program, when the unit has one and says how its entries are laid out
     const scdl = m.en_scdltmr === '1' ? await optional(device, '/aircon/get_scdltimer_info') : null;
     if (scdl && layout(scdl.f_detail).length) caps.schedule = { type: 'program', perDay: parseInt(scdl.scdl_per_day, 10) || 6, modes: PROGRAM_MODES };
@@ -235,10 +246,11 @@ function create({ get = httpGet, now = Date.now } = {}) {
   }
 
   async function state(device) {
-    const [c, s, info] = await Promise.all([
+    const [c, s, info, demand] = await Promise.all([
       call(device, '/aircon/get_control_info'),
       optional(device, '/aircon/get_sensor_info'),      // temperatures are a bonus: the unit still shows without them
       slowInfo(device),
+      model(device).then((m) => (m.dmnd === '1' ? optional(device, '/aircon/get_demand_control') : null)),
     ]);
     const adv = String(c.adv || '').split('/');
     const out = {
@@ -250,6 +262,7 @@ function create({ get = httpGet, now = Date.now } = {}) {
     };
     if ('adv' in c) { out.powerful = adv.includes(ADV.powerful); out.econo = adv.includes(ADV.econo); }
     if ('en_streamer' in c) out.streamer = adv.includes(ADV.streamer);
+    if (demand && 'en_demand' in demand) { out.demand = demand.en_demand === '1' ? DEMAND[demand.mode] || 'manual' : 'off'; out.demandMax = num(demand.max_pow); }
     return out;
   }
 
@@ -278,6 +291,16 @@ function create({ get = httpGet, now = Date.now } = {}) {
       if (k in changes) await call(device, `/aircon/set_special_mode?set_spmode=${changes[k] ? 1 : 0}&spmode_kind=${SPMODE_KIND[k]}`);
     }
     if ('streamer' in changes) await call(device, `/aircon/set_special_mode?en_streamer=${changes.streamer ? 1 : 0}`);
+    if ('demand' in changes || 'demandMax' in changes) {
+      const cur = (await optional(device, '/aircon/get_demand_control')) || {};
+      // a ceiling moved by hand is a manual limit, whatever the mode was
+      const wanted = changes.demand || ('demandMax' in changes ? 'manual' : cur.en_demand === '1' ? DEMAND[cur.mode] : 'off');
+      if (wanted === 'off') await call(device, '/aircon/set_demand_control?type=1&en_demand=0');
+      else {
+        const max = clamp(Math.round((changes.demandMax != null ? Number(changes.demandMax) : num(cur.max_pow) || 100) / 5) * 5, 40, 100);
+        await call(device, `/aircon/set_demand_control?type=1&en_demand=1&mode=${codeOf(DEMAND, wanted)}&max_pow=${max}`);
+      }
+    }
     if ('schedule' in changes) await setProgram(device, changes.schedule);
   }
 

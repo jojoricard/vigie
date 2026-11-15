@@ -277,7 +277,10 @@ test('the parameters of a type change what is drawn', async () => {
   assert.equal(furnitureParts(item('screen', { params: { lit: '#7c3aed' } })).filter((p) => p.look === 'glow').length, 1, 'a lit screen glows');
   assert.equal(furnitureParts(item('screen', {})).filter((p) => p.look === 'glow').length, 0);
   assert.ok(furnitureParts(item('pc', { params: { glow: '#8b5cf6' } })).some((p) => p.look === 'glow') && furnitureParts(item('pc', {})).some((p) => p.look === 'glass'));
-  assert.ok(furnitureParts(item('curtain', {})).every((p) => p.look === 'sheer'));
+  // a curtain placed by hand: sheer folds under a rod, all of it fixed to the wall behind
+  const curtain = furnitureParts(item('curtain', { size: [1.6, 0.1, 2.2] }));
+  assert.ok(curtain.filter((p) => p.look === 'sheer').length >= 3 && curtain.every((p) => p.bound));
+  assert.equal(curtain.filter((p) => p.look === 'solid').length, 1, 'its rod');
   // an arc lamp carries its shade away from its foot, on the side asked
   const shade = (side) => furnitureParts(item('lamp', { size: [0.25, 0.25, 0.9], params: { style: 'arc', reach: 0.5, side } })).filter((p) => p.shape === 'cyl').pop().at[0];
   assert.ok(shade('left') < -0.4 && shade('right') > 0.4);
@@ -433,4 +436,132 @@ test('sliding and zooming by hand: the point under the pointer stays, the home i
   assert.equal(holdView(plan, { ...view, elevation: -1 }).elevation, LIMITS.minElevation);
   assert.deepEqual(holdView(plan, { ...view, pan: [50, -50] }).pan, [3, -2]);
   assert.deepEqual(panBy(plan, panBy(plan, view, 1000, 1000), -1000, -1000).pan.map((v) => Math.abs(v)), [3, 2], 'held at the edge both ways');
+});
+
+/* ---------- One rule for the walls ---------- */
+test('seen from eight angles, a wall behind its rooms is high, one in front is low, and a façade is one piece', async () => {
+  const { wallHeight, wallInside, facadeOf, highOf, CUT_HEIGHT, LOW_WALL } = await page('plan.js');
+  const DEG = Math.PI / 180, plan = demo();
+  const high = highOf(plan);
+  assert.ok(high > CUT_HEIGHT + 0.8, 'the head of the highest window of the home');
+  for (const azimuth of [0, 45, 90, 135, 180, 225, 270, 315]) {
+    // toward the eye, on the ground: where the camera stands
+    const eye = [Math.sin(azimuth * DEG), Math.cos(azimuth * DEG)];
+    const byFacade = new Map();
+    for (const wall of plan.walls) {
+      const inside = wallInside(plan, wall), h = +wallHeight(plan, wall, azimuth * DEG, 50 * DEG).toFixed(3);
+      if (!inside) { assert.equal(h, CUT_HEIGHT, `${wall.id} at ${azimuth}°: a wall between two rooms keeps the cut`); continue; }
+      const toward = inside[0] * eye[0] + inside[1] * eye[1];
+      // its rooms are between the wall and the eye: it stands behind them
+      const expected = toward > 0.01 ? +high.toFixed(3) : toward < -0.01 ? LOW_WALL : CUT_HEIGHT;
+      assert.equal(h, expected, `${wall.id} at ${azimuth}°`);
+      const key = facadeOf(plan, wall);
+      if (byFacade.has(key)) assert.equal(h, byFacade.get(key), `${wall.id} at ${azimuth}°: same height as the rest of its façade`);
+      byFacade.set(key, h);
+    }
+  }
+  // every outside wall of the demo flat is one of four façades, and they are never all high nor all low
+  assert.equal(new Set(plan.walls.map((w) => facadeOf(plan, w)).filter(Boolean)).size, 4);
+  const heights = ['w-north', 'w-east', 'w-south', 'w-west'].map((id) => +wallHeight(plan, plan.walls.find((w) => w.id === id), -35 * DEG, 50 * DEG).toFixed(2));
+  assert.deepEqual(heights, [+high.toFixed(2), +high.toFixed(2), LOW_WALL, LOW_WALL], 'the usual three-quarter view: the two walls at the back stand, the two in front come down');
+});
+
+test('a wall without a window stands as high as the others at the back, and a stretch of façade past the last room follows its façade', async () => {
+  const { wallHeight, wallInside, facadeOf, highOf, CUT_HEIGHT, LOW_WALL } = await page('plan.js');
+  const DEG = Math.PI / 180;
+  const plan = {
+    rooms: [{ id: 'a', polygon: [[0, 0], [4, 0], [4, 3], [0, 3]] }],
+    walls: [
+      { id: 'back', a: [0, -0.1], b: [4, -0.1], thickness: 0.2 },
+      { id: 'back-end', a: [4, -0.1], b: [6, -0.1], thickness: 0.2 },     // the façade goes on past the room: no room beside it
+      { id: 'blank', a: [-0.1, 0], b: [-0.1, 3], thickness: 0.2 },
+      { id: 'front', a: [4, 3.1], b: [0, 3.1], thickness: 0.2 },          // drawn the other way round
+      { id: 'lost', a: [9, 9], b: [9, 12], thickness: 0.2 },              // a wall on its own, away from everything
+    ],
+    openings: [{ id: 'w', type: 'window', wall: 'back', offset: 1, width: 1.2, height: 1.2, sill: 1 }],
+  };
+  const wall = (id) => plan.walls.find((w) => w.id === id), at = (id, azimuth) => +wallHeight(plan, wall(id), azimuth * DEG, 50 * DEG).toFixed(2);
+  assert.equal(+highOf(plan).toFixed(2), 2.3);
+  assert.equal(at('blank', 90), 2.3, 'no window of its own, and still as high as the wall with one');
+  assert.equal(at('blank', 270), LOW_WALL);
+  assert.deepEqual(wallInside(plan, wall('back-end')).map((v) => Math.round(v) + 0), [0, 1], 'it takes the side of the façade it continues');
+  assert.equal(facadeOf(plan, wall('back-end')), facadeOf(plan, wall('back')));
+  for (const azimuth of [0, 45, 135, 180, 315]) assert.equal(at('back-end', azimuth), at('back', azimuth), `one façade at ${azimuth}°`);
+  assert.deepEqual([at('front', 0), at('front', 180)], [LOW_WALL, 2.3], 'the way a wall was drawn changes nothing');
+  assert.equal(wallInside(plan, wall('lost')), null);
+  assert.equal(at('lost', 0), CUT_HEIGHT);
+  // a home without any window: its walls at the back still stand
+  const blind = { rooms: plan.rooms, walls: plan.walls.slice(0, 3), openings: [] };
+  assert.equal(+highOf(blind).toFixed(2), 2.1);
+  assert.equal(+wallHeight(blind, blind.walls[0], 0, 50 * DEG).toFixed(2), 2.1);
+});
+
+test('a curtain hangs at its window: against the wall, its rod just above the head, down to the floor, a little wider', async () => {
+  const { curtainOf } = await page('plan.js');
+  const plan = {
+    rooms: [{ id: 'a', polygon: [[0, 0], [4, 0], [4, 3], [0, 3]] }, { id: 'b', polygon: [[0, 3.2], [4, 3.2], [4, 6], [0, 6]] }],
+    walls: [{ id: 'back', a: [0, -0.1], b: [4, -0.1], thickness: 0.2 }, { id: 'between', a: [0, 3.1], b: [4, 3.1], thickness: 0.2 }],
+    openings: [
+      { id: 'w', type: 'window', wall: 'back', offset: 1, width: 1.4, height: 1.2, sill: 1, curtain: 'white' },
+      { id: 'bare', type: 'window', wall: 'back', offset: 2.6, width: 0.6, height: 1.2, sill: 1 },
+      { id: 'inner', type: 'window', wall: 'between', offset: 1, width: 1, height: 1, sill: 1, curtain: { color: 'linen', room: 'b' } },
+    ],
+  };
+  const c = curtainOf(plan, plan.openings[0]);
+  assert.equal(+c.length.toFixed(2), 1.7, '15 cm past the window on each side');
+  assert.equal(+c.top.toFixed(2), 2.28, 'the head of the window is at 2.20 m: the rod sits just above');
+  assert.ok(c.rodTop > c.top && c.rodTop - c.top < 0.05);
+  assert.deepEqual([+c.x.toFixed(2), c.color], [1.7, 'white'], 'centered on its window');
+  assert.ok(c.y > 0 && c.y < 0.06, `inside the room, against the wall (y = ${c.y.toFixed(3)})`);
+  assert.deepEqual(c.inside.map((v) => Math.round(v) + 0), [0, 1]);
+  assert.equal(curtainOf(plan, plan.openings[1]), null, 'a window without a curtain has none');
+  // between two rooms the plan says which one it dresses
+  const inner = curtainOf(plan, plan.openings[2]);
+  assert.ok(inner.y > 3.2 && inner.color === 'linen');
+});
+
+test('kitchen units stand at the standard height whatever the plan says, their wall units fixed to the wall', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const top = (parts) => Math.max(...parts.map((p) => p.at[2] + p.size[2] / 2));
+  for (const height of [0.7, 0.9, 1.4]) {
+    const parts = furnitureParts(item('kitchen', { size: [2.4, 0.6, height], params: { doors: 4 } }));
+    assert.ok(parts.every((p) => !p.bound) && Math.abs(top(parts.filter((p) => p.shape === 'box')) - 0.9) < 1e-9, `worktop at 0.90 m for a plan that says ${height}`);
+  }
+  const run = furnitureParts(item('kitchen', { size: [2.4, 0.6, 0.9], params: { doors: 4, uppers: true, hob: [0.1, 0.4], sink: [0.6, 0.85] } }));
+  const uppers = run.filter((p) => p.bound);
+  assert.equal(uppers.length, 6, 'a carcass, four fronts and the splashback behind them');
+  const splash = uppers[5];
+  assert.deepEqual([+(splash.at[2] - splash.size[2] / 2).toFixed(2), +(splash.at[2] + splash.size[2] / 2).toFixed(2)], [0.9, 2.1], 'from the worktop to the top of the wall units');
+  const carcass = uppers[0];
+  assert.deepEqual([+(carcass.at[2] - carcass.size[2] / 2).toFixed(2), +(carcass.at[2] + carcass.size[2] / 2).toFixed(2)], [1.4, 2.1], 'above the worktop, not cut at the cut of the furniture');
+  assert.ok(Math.abs(carcass.at[1] - carcass.size[1] / 2 - -0.3) < 1e-9, 'its back is the back of the run: against the wall');
+  assert.ok(carcass.size[1] < 0.6, 'shallower than the units under it');
+  assert.ok(run.length > furnitureParts(item('kitchen', { size: [2.4, 0.6, 0.9], params: { doors: 4, uppers: true } })).length, 'a hob and a sink are drawn on the worktop');
+});
+
+test('a plant is a round pot, pebbles, and stems that each carry a leaf', async () => {
+  const { furnitureParts } = await page('furniture.js');
+  const plant = (params) => furnitureParts(item('plant', { size: [0.55, 0.55, 1.7], params }));
+  const parts = plant({ pot: 'cream', stems: 7 });
+  const stems = parts.filter((p) => p.shape === 'cyl' && p.tilt != null), leaves = parts.filter((p) => p.shape === 'box' && p.tilt != null);
+  assert.deepEqual([stems.length, leaves.length], [7, 7]);
+  assert.ok(leaves.every((l, i) => l.tilt > stems[i].tilt && l.size[0] > 5 * l.size[1]), 'a leaf leans further out than its stem, and is a blade');
+  assert.ok(new Set(stems.map((s) => Math.round(s.turn))).size >= 6, 'each stem goes its own way');
+  assert.equal(parts.filter((p) => p.shape === 'cyl' && p.size[2] === 0.03 && p.size[0] < 0.2).length, 11, 'pebbles on the soil');
+  assert.equal(plant({ pebbles: false }).filter((p) => p.shape === 'cyl' && p.size[2] === 0.03 && p.size[0] < 0.2).length, 0);
+  assert.ok(Math.max(...parts.map((p) => p.at[2])) < 1.75, 'nothing above the height the plan gives');
+  assert.equal(plant({ stems: 40 }).filter((p) => p.shape === 'box').length, 12, 'no forest in a pot');
+  assert.deepEqual(plant({ pot: 'cream' }), plant({ pot: 'cream' }), 'the same plant at every drawing');
+});
+
+test('what hangs on a wall between two rooms stands or goes with the side of its own room', async () => {
+  const { standHeight, highOf, CUT_HEIGHT, LOW_WALL } = await page('plan.js');
+  const DEG = Math.PI / 180, plan = demo(), high = +highOf(plan).toFixed(2);
+  // wall units in a room that lies north of their wall: `inside` points north (toward -y)
+  const at = (azimuth) => +standHeight(plan, [0, -1], azimuth * DEG, 50 * DEG).toFixed(2);
+  const eyes = [0, 90, 180, 270].map(at);
+  assert.equal(eyes.filter((h) => h === high).length, 1, 'they stand from one side only');
+  assert.equal(eyes.filter((h) => h === LOW_WALL).length, 1, 'and go when the eye is behind their wall');
+  assert.equal(eyes.filter((h) => h === CUT_HEIGHT).length, 2, 'edge-on they keep the cut');
+  assert.equal(+standHeight(plan, null, 0, 50 * DEG).toFixed(2), CUT_HEIGHT);
 });

@@ -4,17 +4,35 @@ Why things are built the way they are, when the code alone doesn't tell. Read th
 
 ## Display principles
 
-The Overview must fit on one screen without scrolling. Anything added there costs something removed, so new cards go to Weather, Machine or Tools.
+Nothing scrolls, on any tab, at any size, panels included: the page is a screen on a wall, and a scrollbar there is content nobody will ever see. `html` and `body` are `100dvh` with `overflow: hidden`, and each tab is a box that fills what is left under the tab bar.
 
-A card that is "hidden when empty" isn't free if it is rarely empty. A first version of "What changed" lived on the Overview and made it scroll for weeks because of a single thermal drift. The Overview now only shows pills, the details live in Machine.
+The screen is filled, and what does not fit folds, by one engine for every tab and every panel (`public/js/fit.js`), the same way in both directions. Each block declares a priority in the markup (1 must stay, 2 is useful, 3 is optional, 4 an extra) and has up to three looks: compact, normal, and rich for a block marked `data-rich` (the Overview's system block with the GPU fan and the network rate, the 48 h curve, the 7-day curve, the air details). The engine starts from the minimum (optional blocks away, the others compact, lists down to their fewest rows) and grows the blocks for as long as they fit: the normal look of what must stay, then of what is useful with its lists at full length, the optional blocks back, the rich looks by order of priority, and the extras last. The rain radar in the Weather page is such an extra: it only takes the room no other block wants. On a smaller screen the same order folds back. If even the minimum does not fit the box is cut into sub-views, every block back in its normal look, with dots to flip through them (click, arrow keys, swipe). A list is never cut in the middle of a row: the rows that do not fit start the next page of the list, with its own dots in the head of the block.
 
-The Tempo badge in the header only shows when tomorrow is red. A permanent badge ends up unseen.
+No card stretches empty. A block is as tall as its content in the look it has; the room left over goes to the blocks whose content really scales (`data-grow`: the plan, a chart, a grid of tiles), up to their ceiling, never to a compact look, and what is still left becomes even spacing between the blocks of the column, up to 48 px a gap. Beyond that the bottom of the column stays empty: a gap of 300 px between two cards reads as a broken page, an empty bottom does not.
 
-The Air quality card follows the same rule. While every city is "good" or "fair" (40 or less on the European index) and the home city has no pollen, there is nothing to act on: the card gives way to one line at the bottom of the weather card ("Fair air · no pollen", worded after the worst city). It comes back as soon as one city passes 40 or a pollen shows up. A city without data is ignored, no data at all keeps the card and its "unavailable". The full detail stays in Weather.
+The arrangement is computed (`arrange()`, pure and tested), not left to CSS: a CSS layout cannot say "hide this before shrinking that". The heights come from the blocks themselves, measured once in each look. The cost is one measure per change of size or of content, queued so that ten refreshes in a second make one pass.
 
-Top processes moved from the Overview to Machine: at rest the list never changes and it took half a row. Storage and Devices now share that row as two cards.
+`scripts/check-scroll.js` is what keeps the rule true: it opens every tab, every sub-view and every detail panel on the demo data in headless Chrome, at nine sizes from a phone lying down to the 1440 x 2560 kiosk, and fails when a container is taller than its box, when the page scrolls, or when something sticks out of the window. It also fails when a view leaves more than 12 % of its height empty while a block could still take a richer look, and when a card holds an empty zone taller than 15 % of the screen. Run it after any change to a tab.
 
-Tabs follow one rule: one tab per domain. The Year and Network cards are in Machine because the PC produces those measurements.
+A card that is "hidden when empty" isn't free if it is rarely empty. A first version of "What changed" lived on the Overview and pushed everything else for weeks because of a single thermal drift. The Overview only shows what needs someone; the details live in their tab.
+
+Tabs follow one rule: one tab per domain. Energy has its own since the house brought counters of its own (the air conditioners, a meter one day): Tempo, the grid, the PC and the units are one subject. The year strip is there too, since it is consumption. Network stays in Machine because the PC produces those measurements.
+
+Top processes and the watched services are gone, interface, routes and collection. At rest the list of processes never changed, and a service down is a job for a monitor that runs when the PC is off, which this is not.
+
+Red, orange and green are kept for states. A chart or a strip uses the accent hue, so that a red on screen always means something is wrong. A block uses three sizes of type at most.
+
+## Alerts
+
+One engine for everything that needs someone (`public/js/alerts.js`): an orange or red weather warning, a red Tempo day tomorrow, an incident of the PC, a hot component, a disk nearly full, an SSD near its end, a low battery, a device of the house that stopped answering, an air conditioner on for half a day, a leak, the end of a wash, the connection down. Each rule has a threshold, a severity and, where a blip must not alert, a duration the condition has to hold. The same list feeds the band of the Overview, the pill of the tab bar and the briefing, so the three cannot disagree.
+
+It runs on the page, not in the agent: every input is already there (the page polls them to draw them), and an alert that only exists while the screen is on needs no storage and no schedule. What is remembered (since when a condition holds, what was acknowledged) is in `localStorage`. An acknowledged alert stays quiet for as long as its cause lasts and comes back if the cause does.
+
+A Govee lamp silent on the LAN is not an alert: it is almost always a lamp switched off at the wall. Its tile says so and its panel gives the steps.
+
+## Night
+
+Between the two hours of `night`, a dark veil covers the page and the Overview keeps the clock and the alerts. The first click, key or touch lifts it for three minutes. It is a veil and not a second page, so nothing reloads when it lifts.
 
 ## Look
 
@@ -28,11 +46,13 @@ Icons are SVG drawn for the page (`public/js/icons.js`), never emoji: an emoji l
 
 The CPU, GPU and RAM sparklines use a fixed 0 to 100 scale. Scaled to their own range, a flat 3 % would look like a storm.
 
-The page fits the screen with a CSS zoom: `fitToScreen()` in `main.js` looks for the largest zoom at which the Overview still fits without scrolling, then the last cards stretch to the bottom edge (the forecast rows, the chart, the lists). Zooming everything rather than enlarging a few fonts keeps the proportions the design was drawn with. Only `getBoundingClientRect` includes the zoom, offset and client sizes don't. A margin of 6 px is left for the anti burn-in shift, which brought back a scrollbar on a page that fitted to the pixel. Below a zoom of 0.8 (a phone, a small window) the page keeps its natural size and scrolls.
+The page is drawn for 1080 px across upright and 1920 px lying down, and zoomed on anything larger (`uiScale()` in `fit.js`, up to 2): the 1440 x 2560 kiosk shows the 1080 x 1920 layout at 1.33. Zooming everything rather than enlarging a few fonts keeps the proportions the design was drawn with. A smaller screen is never shrunk: it gets fewer columns and more folding, the text stays readable.
 
 The golden hour (sun between -4 and +6 degrees) and the blue hour (between -6 and -4) are soft bands on the sun's path, computed every 5 minutes rather than from crossing times, so a band that never closes in summer far north still comes out right.
 
-In landscape the Overview uses three fixed groups instead of CSS columns. Columns follow the page order, which stacked the clock, the briefing and the weather in the first one, too tall for a 1080p screen. On a vertical screen the groups melt into one column and `order` restores the reading order. The briefing sits next to the clock there, in space that was empty anyway.
+Columns are decided from the width in layout pixels: three lying down from 1500 px, two from 700, one upright (two from 1300). A block may ask for its column (`data-c2`, `data-c3`); the others are spread to even the columns out.
+
+The sun's big curve left the Overview: sunrise and sunset now stand at their hour in the strip of the coming hours, where they are read with the weather they come with.
 
 ## Languages and countries
 
@@ -150,9 +170,11 @@ The gap to the seasonal normal is computed over the last 10 years at the same da
 
 The pressure tendency is the change over 3 hours, the meteorologists' interval: under 1 hPa it is steady, from 3.5 hPa a change of weather is close. It has its own request with the day before, the main series starts at midnight, too late for a tendency at 1 am.
 
-The Weather tab makes no extra request: it uses the series already loaded for the Overview.
+The Weather tab makes no extra request: it uses the series already loaded for the Overview. The 48 hours are one curve (temperature as a line, rain as bars, wind dashed) under the strip of hours: the strip gives the figures, the curve the shape. The 7 days are tight rows with a min/max band below. The snow block is in the page, and only when there is snow on the ground or expected.
 
 ## Rain radar
+
+The radar sits in the Weather page when the page has room for it once every other block is at its richest (a wide screen), and is a sub-view behind its button otherwise. Leaflet, its tiles and the frames are only loaded when it is shown, and the animation stops when the tab is left. Loaded all the time, it cost a map and twelve frames every ten minutes for a view nobody had asked for.
 
 Leaflet with an OpenStreetMap base and RainViewer tiles, neither needs a key. CARTO's dark bases now require a key (the tile comes back watermarked, which a plain HTTP status check doesn't reveal). The OSM base is therefore darkened by a CSS filter applied to its own layer only, so the radar isn't darkened.
 
@@ -251,9 +273,19 @@ One module per type of device in `plan3d.js` (`light`, `climate`, `heater`, `cov
 
 The `demo` driver keeps made-up devices in memory. It exists so the tab, the plan and the screenshots can be shown without any hardware and without anybody's home.
 
+### Walls, and what hangs on them
+
+Which walls stand used to depend on each wall's own windows and on the angle, wall by wall: two walls of the same façade could stand at different heights, and a turn of the model made them pop one after the other. One rule now: for the eye, an outside wall is behind its rooms (it stands, up to the head of the highest window of the home, the same height for all), in front of them (it comes down to 0.40 m) or edge-on (the cut). The side of a wall is worked out from the rooms beside it, once per plan, and all the walls on one line with their rooms on the same side move as one façade. A wall between two rooms keeps the cut at 1.25 m: raised, it would hide one of its two rooms from every angle.
+
+A door starts at the floor: the gap under the leaves came from the floors stopping at the faces of the walls, so each opening down to the floor gets a threshold in the tone of the room it opens into.
+
+A curtain belongs to its window (`curtain` on the opening) instead of being a piece of furniture placed by eye a few centimeters off the wall: the model hangs it against the wall, rod just above the head, down to the floor, a little wider than the window, and cuts it with its wall.
+
+Kitchen units are a type of their own because their height is not a matter of taste: a worktop is at 0.90 m. Wall units are fixed to the wall behind the run and are cut with it, not with the furniture: on an outside wall they stand when it stands. On a wall between two rooms, which never rises, they are drawn only when their room is the one being looked at: in a view of the whole home they would hide the room behind them.
+
 ### Tab
 
-The tab fits the screen, like the Overview: on a wall screen nobody scrolls. Upright, the plan takes at least half of the height, then the scenes, then the tiles. Lying down, the plan sits beside them. When the tiles are too many for their share, they are the ones that tighten, in three looks (small cards, rows, tight rows): the plan never shrinks, since a plan too small to read is worth nothing while a tile still says its figure at 46 px. What the tiles do not use goes to the plan. Under 720 px wide the tab scrolls as before.
+The tab fits the screen, like every tab. Upright, the plan takes half of the height, then who is home and the scenes, then the tiles. Lying down, the plan sits beside them. When the tiles are too many for their share, they are the ones that tighten, in three looks (small cards, rows, tight rows), then they page: the plan never shrinks, since a plan too small to read is worth nothing while a tile still says its figure at 46 px.
 
 One grid for every room instead of one row of tiles per room: a room with a single device left three quarters of a row empty, and four rooms cost four titles. The room is written small on each tile, and what runs in a room is said on the plan. Framing a room on the plan dims the tiles of the others.
 
@@ -263,13 +295,29 @@ A tile and its marker on the plan point at each other: the one under the pointer
 
 Fuel prices left the tab for Tools: they are not the home, and their card was what made the tab scroll.
 
-## Services
+## Modules
 
-Any HTTP answer below 500 means the server is up: a 401 or a 403 still comes from it. A 500 or more is a server error, no answer at all within 10 s is down. Checked every 5 minutes, the state since its last change.
+Each integration of the house is a module with one of three states, listed in the tab: active, ready (local, written, waiting for its settings or its hardware) or off (needs an account). A module that is not active costs nothing: `buildDrivers()` does not create it, no socket is opened, and the devices of the config that name it are left out of the answers rather than shown as failures. A driver nobody knows (a typo) still shows as a failure, since that is a mistake to see.
+
+Local first is a rule, not a preference: the PC is on the same network as everything it drives, a local API keeps working when a manufacturer's cloud does not, and it asks for no account. The three cloud modules stay because they are written and tested, for hardware that has no local API; they are off in the repository and labelled as needing an account.
+
+The service runs no automation of its own ("at 6:30…"): the machine it runs on is a desktop PC that is off half the day. Programs are written into the devices. The day it runs on a machine that stays on, `house.remote` makes the agent a relay to it, and this rule can be revisited there.
+
+**Freebox.** Presence is read from the box rather than by pinging phones: the box knows every device of the network and when it last saw it, and a phone asleep on Wi-Fi does not answer a ping. Ten minutes of grace, because that sleep lasts minutes. People and their devices are named in the config only.
+
+**TaHoma.** The box signs its HTTPS certificate with an authority no system trusts. The two easy ways out are to switch the check off or to ask the user to install a root certificate; the driver ships that one root and trusts it for that one connection.
+
+**MQTT.** A client of 200 lines rather than a dependency: the service needs CONNECT, SUBSCRIBE, PUBLISH at QoS 0 and a ping, nothing more. The cycle of an appliance is read from the power of its plug with two thresholds in time, so a pause between two phases of a wash is not taken for its end.
 
 ## Fuel prices
 
 The government dataset writes Paris wall-clock times labelled `+00:00`: read as UTC they land two hours in the future in summer. The first 19 characters are read as local time instead. A price that hasn't moved in a week says nothing about today and is dropped, out-of-stock fuels come without a price. The dataset has no station name, only the address. In WKT the longitude comes first: swapped, the query returns nothing and no error.
+
+Each day the agent keeps the cheapest price of each fuel around the main city in its database (`fuel` table), so the card can draw the last 30 days: the dataset itself only has today.
+
+## PC updates
+
+The Tools tab shows the GPU driver, the BIOS and Windows like the version watch shows tools: version installed and its age, and for Windows what waits (updates found by the last scan, a pending restart). There is no public, keyless source for "the latest driver" of a given GPU or "the latest BIOS" of a given board (vendors publish them behind pages meant for people), so the card shows the age of what is installed rather than pretend to compare.
 
 ## Windows waiting
 
@@ -295,7 +343,7 @@ Removing CORS stops a third-party site from reading an answer, not from sending 
 
 The context sent to the model is split in two. `alreadyShown` holds what the screen shows in large type next to the text, and the model is told not to repeat it. `toAnalyze` holds what the display can't say: the next 12 hours hour by hour, the next 5 days, the house, a fuel price that moved, the state of the machine, electricity. The model therefore only produces foresight and advice, in 3 sentences at most.
 
-Some of `toAnalyze` is on screen in small print: the titles of the breaks and the services down as pills, tomorrow's Tempo color, the coming holiday under the date. They stay there on purpose, the screen states them and draws nothing from them. The model must give the figure and a consequence, not copy the title.
+Some of `toAnalyze` is on screen in small print: the titles of the breaks and the alerts in their band, tomorrow's Tempo color, the coming holiday under the date. They stay there on purpose, the screen states them and draws nothing from them. The model must give the figure and a consequence, not copy the title.
 
 A field without data is left out of the context, never sent empty or `null`: the model comments on whatever it is given. Three rules came from the first real briefings, each enforced in the data before the prompt:
 
@@ -307,9 +355,9 @@ More generally, an item only reaches the model if it calls for an action, and th
 
 Three sentences are a ceiling, not a target: one sentence per useful thing, and "Rien de particulier aujourd'hui." when there is none.
 
-The text used to be written once a day, at the first display: stale by the afternoon, and a crash at 3 pm only showed up the next day. It is now written per time slot (morning, midday from 12, evening from 17) and again as soon as something new happens: an incident, rain likely within 3 hours, a weather warning, a service going down. The agent also adds the current time and the slot to the context, so the model can say "tonight" or "in 2 hours".
+The text used to be written once a day, at the first display: stale by the afternoon, and a crash at 3 pm only showed up the next day. It is now written per time slot (morning, midday from 12, evening from 17) and again as soon as something new happens: an incident, rain likely within 3 hours, a weather warning, a new alert. The agent also adds the current time and the slot to the context, so the model can say "tonight" or "in 2 hours".
 
-The page decides nothing. It posts its context after every refresh of the weather, the incidents, the warnings and the services, and the agent answers from its cache unless the slot changed or the context holds an event the cached text did not know. The fingerprint is that list of events, not a hash: only a new key counts. A hash would also rewrite the text when the shower has passed or the warning is lifted, and a forecast hovering around 60 % would burn a call at every flip.
+The page decides nothing. It posts its context after every refresh of the weather, the incidents, the warnings and the alerts, and the agent answers from its cache unless the slot changed or the context holds an event the cached text did not know. The fingerprint is that list of events, not a hash: only a new key counts. A hash would also rewrite the text when the shower has passed or the warning is lifted, and a forecast hovering around 60 % would burn a call at every flip.
 
 Before 5 am the slot is still the evening before. Otherwise a text written at ten past midnight would stand for the whole morning.
 
@@ -349,7 +397,7 @@ The latest release is picked from the 30 most recent ones, not from GitHub's "la
 
 ## Batteries
 
-Logitech Lightspeed devices fall asleep and stop answering. The last known value is kept in `.batteries.json` and shown faded with `~`.
+Logitech Lightspeed devices fall asleep and stop answering. The last known value is kept in `.batteries.json` and shown faded with `~`. A battery alerts at 20 % (`alerts.batteryPct`): at 15 % a mouse at 17 % said nothing, and a Lightspeed mouse at that level has a day or two left, enough to plan the charge.
 
 ## Discarded ideas
 

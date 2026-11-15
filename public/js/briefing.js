@@ -6,8 +6,10 @@
 import { $, state, esc, getJson, FetchError, DAY_MS } from "./core.js";
 import { t, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { wmoLabel, hourIndex } from "./weather.js";
-import { changeText, since } from "./machine.js";
+import { changeText } from "./machine.js";
+import { alertText } from "./alerts.js";
 import { monthName } from "./energy.js";
+import { queueFit } from "./fit.js";
 
 const HOURS_AHEAD = 12, SOON_HOURS = 3, CLOSE_DAYS = 7;
 
@@ -142,6 +144,17 @@ function fuelContext(cfg) {
   }).filter(Boolean);
 }
 
+/* The alerts in progress the rest of the context does not already carry: a weather
+   warning is on screen, Tempo, the incident and the laundry have their own field. `id`
+   is what makes the agent write a new text when one appears. */
+const ELSEWHERE = ["warning", "tempoRed", "incident", "laundry", "change"];
+function alertsContext() {
+  return (state.notices || []).filter((a) => !ELSEWHERE.includes(a.kind)).map((a) => {
+    const x = alertText(a);
+    return { id: a.id, what: [x.title, x.detail].filter(Boolean).join(": "), since: fmtTime(a.since) };
+  });
+}
+
 export function buildContext() {
   const w0 = state.weather[0];
   if (!w0) return null;
@@ -173,8 +186,7 @@ export function buildContext() {
       otherCities: state.weather.slice(1).map((w, i) => w ? { name: state.cities[i + 1].short, max: Math.round(w.daily.temperature_2m_max[0]) } : null).filter(Boolean),
       tempo: tempoContext(),
       holidays: holidaysContext(),
-      servicesDown: (state.services || []).filter((s) => s.state === "down" || s.state === "error")
-        .map((s) => ({ name: s.name, state: s.state, since: since(s.since) })),
+      alerts: alertsContext(),
       network: networkContext(),
       house: houseContext(cfg),
       fuel: fuelContext(cfg),
@@ -209,18 +221,23 @@ async function sendBriefing() {
   if (j.error) console.warn("Vigie: briefing:", j.error);
   // No text for today: yesterday's must not stay on screen.
   $("briefing").innerHTML = j.text ? emphasize(j.text) : "";
-  $("briefing").hidden = !j.text;
   $("briefMeta").textContent = j.text ? t("brief.head", j.at ? fmtTime(j.at) : "") : "";
-  $("briefMeta").hidden = !j.text;
-  $("briefBlock").classList.toggle("hasText", !!j.text);
+  $("briefBlock").hidden = !j.text;
+  queueFit();
 }
 
 /* Called after each refresh the briefing depends on. At startup they all land within
    seconds: one request goes out once they have settled, so the first text of the day
    is not written before the incidents and the warnings have arrived. */
-let timer = null;
+let timer = null, firstAsk = 0;
 export function queueBriefing() {
   if (!state.cfg.hasBriefing) return;
   clearTimeout(timer);
-  timer = setTimeout(sendBriefing, 8000);
+  // the demo has nothing to wait for: its text is ready
+  if (state.cfg.demo) { timer = setTimeout(sendBriefing, 0); return; }
+  // Each call pushes the request back, but never past 30 s after the first: a refresh
+  // that came every few seconds once kept it from ever leaving, and the briefing with it.
+  const now = Date.now();
+  if (!firstAsk) firstAsk = now;
+  timer = setTimeout(() => { firstAsk = 0; sendBriefing(); }, Math.max(0, Math.min(8000, firstAsk + 30000 - now)));
 }

@@ -79,6 +79,8 @@ function validate(plan, deviceIds = null) {
     if (o.offset + o.width > wallLength(wall) + EPS) errors.push(`opening "${o.id}": goes past the end of wall "${o.wall}"`);
     if (!(isNum(o.height) && o.height > 0)) errors.push(`opening "${o.id}": "height" must be a positive number`);
     if (o.sill != null && !(isNum(o.sill) && o.sill >= 0)) errors.push(`opening "${o.id}": "sill" must be zero or more`);
+    // a curtain hung at the opening: true, the name of its color, or { color, room }
+    if (o.curtain != null && !(o.curtain === true || o.curtain === false || typeof o.curtain === 'string' || (typeof o.curtain === 'object' && !Array.isArray(o.curtain)))) errors.push(`opening "${o.id}": "curtain" must be true, a color or an object`);
     if (!perWall.has(o.wall)) perWall.set(o.wall, []);
     perWall.get(o.wall).push(o);
   }

@@ -6,8 +6,8 @@
    while a view moves or an air conditioner blows, and nothing at all while hidden.
    Each kind of device is one entry of MODULES: a new type is a new entry. */
 import * as THREE from "../vendor/three/three.module.min.js";
-import { furnitureParts, placePart } from "./furniture.js";
-import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, wallTall, holdView, panBy, zoomAt, LIMITS } from "./plan.js";
+import { furnitureParts, placePart, colorOf } from "./furniture.js";
+import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, standHeight, wallInside, highOf, curtainOf, holdView, panBy, zoomAt, LIMITS } from "./plan.js";
 
 const MAX_PIXEL_RATIO = 1.5;      // a 4K kiosk would otherwise shade four times the pixels
 const AMBIENT_FPS = 20;           // the breath of an air conditioner needs no more
@@ -386,7 +386,8 @@ export function createPlan3d(stage, plan, hooks) {
     return mesh;
   };
   for (const wall of plan.walls || []) {
-    const f = wallFrame(wall), angle = -Math.atan2(f.uy, f.ux), tall = wallTall(plan, wall), sets = [];
+    // a wall that can stand behind its rooms is built up to the height of the home's walls, a wall between two rooms up to the cut
+    const f = wallFrame(wall), angle = -Math.atan2(f.uy, f.ux), tall = wallInside(plan, wall) ? highOf(plan) : CUT_HEIGHT, sets = [];
     walls.set(wall.id, { wall, sets, height: null });
     for (const piece of wallPieces(plan, wall, tall)) {
       const len = piece.to - piece.from, mid = (piece.from + piece.to) / 2;
@@ -402,9 +403,18 @@ export function createPlan3d(stage, plan, hooks) {
       });
     }
   }
+  // What hangs on a wall between two rooms, by piece of furniture: { room, inside, sets, height }.
+  const hung = [];
   function raiseWalls(azimuth, elevation) {
     for (const entry of walls.values()) {
       const h = wallHeight(plan, entry.wall, azimuth, elevation);
+      if (entry.height !== null && Math.abs(h - entry.height) < 0.002) continue;
+      entry.height = h;
+      for (const set of entry.sets) set(h);
+    }
+    for (const entry of hung) {
+      // shown for the room one is looking at; in a view of the whole home they would hide the room behind them
+      const h = view && view.subject === entry.room ? standHeight(plan, entry.inside, azimuth, elevation) : CUT_HEIGHT;
       if (entry.height !== null && Math.abs(h - entry.height) < 0.002) continue;
       entry.height = h;
       for (const set of entry.sets) set(h);
@@ -415,6 +425,44 @@ export function createPlan3d(stage, plan, hooks) {
     const f = openingFrame(plan, o), entry = f && walls.get(o.wall);
     if (!entry) continue;
     const angle = -Math.atan2(f.uy, f.ux), sill = o.sill || 0, head = sill + o.height;
+    /* The floor goes on under an opening that reaches it. Rooms stop at the faces of
+       their walls: without this, a doorway is a strip of void under the leaf. The
+       threshold takes the floor of the room the door opens into, else of a room beside it. */
+    if (sill === 0) {
+      const reach = f.wall.thickness / 2 + 0.15;
+      const beside = [1, -1].map((k) => roomAt(plan, f.x + f.nx * reach * k, f.y + f.ny * reach * k)).filter(Boolean);
+      const room = beside.find((r) => r.id === o.opensInto) || beside.find((r) => r.kind !== "outdoor") || beside[0];
+      const floor = room && floors.get(room.id);
+      if (floor && !floor.hollow) {
+        const step = new THREE.Mesh(unit, lambert(floor.tone.clone()));
+        step.scale.set(o.width, 0.012, f.wall.thickness + 0.02);
+        step.rotation.y = angle;
+        step.position.copy(at(f.x, f.y, -0.005));
+        scene.add(step);
+      }
+    }
+    /* A curtain belongs to its window (curtainOf): against the wall on the side of the
+       room, its rod just above the head of the window, falling to the floor. It is cut
+       with its wall, like the window it hangs at: a curtain left standing in front of
+       a lowered wall would hide the room it dresses. */
+    const drape = curtainOf(plan, o);
+    if (drape) {
+      const tone = drape.color && colorOf(drape.color) ? real(colorOf(drape.color)) : pal.ink2.clone();
+      const cloth = new THREE.MeshLambertMaterial({ color: tone, transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide });
+      const turn = -drape.angle, folds = Math.max(4, Math.round(drape.length / 0.16)), ux = Math.cos(drape.angle), uy = Math.sin(drape.angle);
+      const strips = [];
+      for (let i = 0; i < folds; i++) {
+        const along = -drape.length / 2 + (i + 0.5) * drape.length / folds, out = (i % 2 ? 1 : -1) * drape.depth * 0.25;
+        const mesh = slab(cloth, drape.length / folds + 0.004, 0.012, turn);
+        mesh.renderOrder = 1;
+        strips.push({ mesh, x: drape.x + ux * along + drape.inside[0] * out, y: drape.y + uy * along + drape.inside[1] * out });
+      }
+      const rod = slab(mat.frame, drape.length + 0.06, 0.025, turn);
+      entry.sets.push((h) => {
+        for (const st of strips) stretch(st.mesh, st.x, st.y, 0, Math.min(drape.top, h));
+        stretch(rod, drape.x, drape.y, drape.top, drape.rodTop <= h + 1e-6 ? drape.rodTop : drape.top);
+      });
+    }
     if (o.type === "window" || o.type === "french-window") {
       const pane = slab(mat.glass, o.width, 0.03, angle), bar = 0.045, deep = Math.min(0.08, f.wall.thickness * 0.5);
       // the frame: both jambs, a middle post when there are two leaves, the sill and the head
@@ -460,10 +508,35 @@ export function createPlan3d(stage, plan, hooks) {
   const SHAPES = { box: () => new THREE.BoxGeometry(1, 1, 1), cyl: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 18) };
   const batches = new Map();   // "shape|look" -> [{ matrix, color }]
   const up = new THREE.Vector3(0, 1, 0), flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  const lean = new THREE.Vector3(1, 0, 0);
   for (const item of plan.furniture || []) {
+    // what is fixed to a wall (kitchen wall units, a curtain) is cut where that wall is cut, not at the cut of the furniture
+    const backing = nearestWall(plan, item.position[0], item.position[1]);
+    let holder = backing && backing.distance < 0.7 ? walls.get(backing.wall.id) : null;
+    if (holder && !wallInside(plan, backing.wall)) {
+      // a wall between two rooms stays at the cut: what hangs on it follows the side of its own room
+      const s = Math.sign((item.position[0] - backing.wall.a[0]) * backing.nx + (item.position[1] - backing.wall.a[1]) * backing.ny) || 1;
+      holder = { sets: [], height: null, room: item.room, inside: [backing.nx * s, backing.ny * s] };
+      hung.push(holder);
+    }
     for (const part of furnitureParts(item)) {
       const placed = placePart(item, part), look = item.planned && part.look === "solid" ? "ghost" : part.look;
+      if (part.bound && holder && part.shape === "box") {
+        const tone = !part.color ? pal.neutral : real(part.color);
+        const material = look === "sheer" ? new THREE.MeshLambertMaterial({ color: tone, transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide }) : lambert(tone);
+        const mesh = new THREE.Mesh(unit, material);
+        mesh.scale.set(part.size[0], 1, part.size[1]);
+        mesh.rotation.y = -placed.angle * DEG;
+        if (look === "sheer") mesh.renderOrder = 1;
+        scene.add(mesh);
+        const bottom = placed.at[2] - part.size[2] / 2, top = placed.at[2] + part.size[2] / 2;
+        // under a wall that came down, nothing of it is left: a wall unit does not float over a low wall
+        holder.sets.push((h) => stretch(mesh, placed.at[0], placed.at[1], bottom, h > bottom + 0.05 ? Math.min(top, h) : bottom));
+        continue;
+      }
       const turn = new THREE.Quaternion().setFromAxisAngle(up, -placed.angle * DEG);
+      // a part may lean from the vertical toward its front: the stem of a plant, its leaves
+      if (part.tilt) turn.multiply(new THREE.Quaternion().setFromAxisAngle(lean, part.tilt * DEG));
       // a cylinder lying against a wall: its axis goes from the back to the front of its item
       const scale = new THREE.Vector3(part.size[0], part.size[2], part.size[1]);
       const matrix = new THREE.Matrix4().compose(at(placed.at[0], placed.at[1], placed.at[2] + 0.02), part.lie ? turn.multiply(flat) : turn, scale);
@@ -891,5 +964,5 @@ export function createPlan3d(stage, plan, hooks) {
   }
 
   resize();
-  return { update, show, recenter, highlight, dispose, roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
+  return { update, show, recenter, highlight, dispose, look: (goal) => setView(goal, true), roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
 }

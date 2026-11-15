@@ -1,9 +1,13 @@
 /* Devices that only exist in memory, to try the House tab and its plan without any
  * hardware (house/demo/). A device starts from the `state` of its config entry and
  * keeps what it is set to until the service stops. */
+// Made-up effects, as many as a real lamp lists: enough to fill several pages of a panel.
+const SCENES = ['Sunrise', 'Sunset', 'Forest', 'Ocean', 'Candle', 'Fireplace', 'Aurora', 'Rainbow', 'Storm', 'Snow', 'Meadow', 'Desert', 'Lagoon', 'Dawn', 'Dusk', 'Moonlight',
+  'Reading', 'Cinema', 'Dinner', 'Party', 'Sleep', 'Wake up', 'Focus', 'Relax', 'Spring', 'Summer', 'Autumn', 'Winter', 'Breeze', 'Ember', 'Glacier', 'Orchard', 'Harbor', 'Canyon', 'Twilight', 'Morning mist'];
 const CAPS = {
-  light: { on: { type: 'boolean' }, brightness: { min: 1, max: 100, step: 1 }, colorRgb: { type: 'color' }, colorTempK: { min: 2000, max: 9000, step: 100 } },
-  climate: { on: { type: 'boolean' }, mode: { options: ['auto', 'heat', 'cool', 'dry', 'fan'] }, setpoint: { min: 10, max: 32, step: 0.5 }, fan: { options: ['auto', 'quiet', '1', '2', '3'] }, schedule: { type: 'program', perDay: 6, modes: ['heat', 'cool', 'dry'] } },
+  light: { on: { type: 'boolean' }, brightness: { min: 1, max: 100, step: 1 }, colorRgb: { type: 'color' }, colorTempK: { min: 2000, max: 9000, step: 100 },
+    scene: { options: SCENES }, diy: { options: ['Evening one', 'Evening two'] }, music: { options: ['Energic', 'Rhythm', 'Spectrum', 'Rolling'] } },
+  climate: { on: { type: 'boolean' }, mode: { options: ['auto', 'heat', 'cool', 'dry', 'fan'] }, setpoint: { min: 10, max: 32, step: 0.5 }, fan: { options: ['auto', 'quiet', '1', '2', '3'] }, demand: { options: ['off', 'auto', 'manual'] }, demandMax: { min: 40, max: 100, step: 5 }, schedule: { type: 'program', perDay: 6, modes: ['heat', 'cool', 'dry'] } },
   heater: { on: { type: 'boolean' }, mode: { options: ['off', 'manual', 'schedule'] }, setpoint: { min: 7, max: 28, step: 0.5 } },
   cover: { position: { min: 0, max: 100, step: 5 } },
   sensor: {},
@@ -29,6 +33,9 @@ function create() {
       // a color and a color temperature exclude each other, as on a real lamp
       if (changes.colorRgb != null) s.colorTempK = null;
       else if (changes.colorTempK != null) s.colorRgb = null;
+      // an effect replaces the others, and a plain color ends it
+      const effect = ['scene', 'diy', 'music'].find((k) => changes[k] != null);
+      if (effect || changes.colorRgb != null || changes.colorTempK != null) for (const k of ['scene', 'diy', 'music']) if (k !== effect) delete s[k];
     },
     list: async () => [],
   };

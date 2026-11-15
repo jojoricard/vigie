@@ -2,211 +2,281 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vigie</title>
 <link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<div class="wrap">
+<!-- Nothing scrolls: the page is one screen, each tab a box of blocks fitted to it (fit.js).
+     A block says how much it matters with data-prio (1 must stay, 2 useful, 3 optional),
+     where it goes on a wide screen with data-c2 / data-c3 (its column out of two or three),
+     and its share of the room left over with data-grow. -->
+<div class="wrap" id="wrap">
 
-  <!-- One tab per domain. Overview is read at a glance, the others go deeper. -->
   <nav class="tabnav" id="tabnav">
-    <span data-tab="overview" class="on" data-i18n="tab.overview"></span>
-    <span data-tab="weather" data-i18n="tab.weather"></span>
-    <span data-tab="machine" data-i18n="tab.machine"></span>
-    <span data-tab="tools" data-i18n="tab.tools"></span>
-    <span data-tab="house" data-i18n="tab.house"></span>
+    <div class="tabs" id="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="overview" class="on" data-i18n="tab.overview"></button>
+      <button type="button" role="tab" data-tab="weather" data-i18n="tab.weather"></button>
+      <button type="button" role="tab" data-tab="house" data-i18n="tab.house"></button>
+      <button type="button" role="tab" data-tab="energy" data-i18n="tab.energy"></button>
+      <button type="button" role="tab" data-tab="machine" data-i18n="tab.machine"></button>
+      <button type="button" role="tab" data-tab="tools" data-i18n="tab.tools"></button>
+    </div>
+    <!-- What is going on, whatever the tab: the alerts in progress, today's Tempo color. -->
+    <div class="status" id="status"></div>
   </nav>
 
-  <!-- Three groups, side by side in landscape. On a vertical screen they melt into one
-       column (see style.css). -->
-  <div class="tabPane" id="tabOverview">
-    <div class="col">
-      <!-- The lookout's view: time, then the sun's path over the day. No card. -->
-      <header class="hero">
-        <div class="heroTop">
-          <div>
-            <div class="clock" id="clock">--:--</div>
-            <div class="date" id="dateLine"></div>
-            <div class="nameDay" id="nameDayLine" hidden></div>
-            <div class="nameDay" id="holidayLine" hidden></div>
-          </div>
-          <div class="heroRight">
-            <div id="tempoBadge"></div>
-            <!-- Breaks: titles only, as pills. The details live in the Machine tab. -->
-            <div id="changeBadges"></div>
-            <!-- Windows waiting for a reboot or updates, a service down. Details in Machine. -->
-            <div id="machineBadges"></div>
-            <!-- Weather warnings and the briefing, one block: its rule takes the color of the worst warning. -->
-            <div class="brief" id="briefBlock">
-              <div class="briefHead">
-                <span class="briefMeta" id="briefMeta" hidden></span>
-                <div id="alertsList"></div>
-                <div id="houseAlerts" class="warnGroup houseAlerts" hidden></div>
-              </div>
-              <p class="briefing prose" id="briefing" hidden></p>
-            </div>
-            <!-- Only while something plays, and a few minutes after a pause. -->
-            <div class="nowPlaying" id="nowPlaying" hidden></div>
-          </div>
-        </div>
-        <div class="horizon" id="horizon"></div>
-      </header>
-
-      <div class="grid2">
-        <section class="card">
-          <h2 data-i18n="card.storage"></h2><div id="diskList"></div>
-          <div id="ssdHealth" hidden></div>
-        </section>
-        <section class="card"><h2 data-i18n="card.devices"></h2><div id="btList" class="err" data-i18n="searching"></div></section>
+  <!-- ================= OVERVIEW: what matters now, in three seconds ================= -->
+  <div class="tabPane" id="tabOverview" data-fit>
+    <!-- The clock, and beside it what the day asks for. -->
+    <header class="block bare hero" data-prio="1" data-c2="1" data-c3="1">
+      <div class="heroClock">
+        <div class="clock" id="clock">--:--</div>
+        <div class="date" id="dateLine"></div>
+        <div class="nameDay" id="dayNotes" hidden></div>
       </div>
-    </div>
+      <div class="brief" id="briefBlock" hidden>
+        <span class="briefMeta" id="briefMeta"></span>
+        <p class="briefing prose" id="briefing"></p>
+      </div>
+    </header>
 
-    <div class="col">
-      <section class="card" id="wxCard">
-        <canvas id="wxAnim"></canvas>
-        <div class="wxHead">
-          <div class="wxNow">
-            <div class="wxIcon" id="wxIcon"></div>
-            <div class="wxTemp num" id="wxTemp">–°</div>
-            <div>
-              <div class="wxDesc" id="wxDesc" data-i18n="loading"></div>
-              <div class="wxSub" id="wxSub"></div>
-            </div>
+    <!-- No alert, no room taken. -->
+    <section class="block alertBand" id="alertBand" data-prio="1" data-c2="1" data-c3="1" hidden>
+      <div class="bHead"><h2 data-i18n="card.alerts"></h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="alertRows" data-rows data-min-rows="1"></div>
+    </section>
+
+    <!-- Only while something plays. -->
+    <section class="block bare nowPlaying" id="nowPlaying" data-prio="2" data-c2="1" data-c3="1" hidden></section>
+
+    <section class="block card" id="wxCard" data-prio="1" data-c2="2" data-c3="2">
+      <canvas id="wxAnim" data-viewport></canvas>
+      <div class="wxHead">
+        <div class="wxNow">
+          <div class="wxIcon" id="wxIcon"></div>
+          <div class="wxTemp num" id="wxTemp">–°</div>
+          <div>
+            <div class="wxDesc" id="wxDesc" data-i18n="loading"></div>
+            <div class="wxSub" id="wxSub"></div>
           </div>
-          <div class="seg" id="cityTabs"></div>
         </div>
-        <div class="readouts" id="wxReadouts"></div>
-        <div class="rainLine" id="rainWrap" hidden><span id="rainLbl"></span><div id="rainBars"></div></div>
-        <div class="forecast" id="forecast"></div>
-        <!-- Stands for the Air quality card while the air is good and there is no pollen. -->
-        <div class="airLine" id="airLine" hidden></div>
-      </section>
-
-      <section class="card" id="energyCard" hidden>
-        <h2 data-i18n="card.energy"></h2>
-        <div class="readouts" id="energyRow"></div>
-      </section>
-    </div>
-
-    <div class="col">
-      <!-- Only when a city is worse than "fair" or a pollen is around. -->
-      <section class="card" id="aqiCard" hidden><h2 data-i18n="card.air"></h2><div class="readouts" id="aqiRow"></div><div id="pollenLine" hidden></div></section>
-
-      <section class="card" id="sysCard">
-        <div class="cardHead"><h2 data-i18n="card.system"></h2><div class="meta" id="uptimeVal"></div></div>
-        <div id="lhmStatus" hidden></div>
-        <div class="meters" id="meters"></div>
-        <div class="dl" id="sysList"></div>
-        <div class="histCtl">
-          <div class="histTabs" id="histMetric"><span data-m="temp" data-i18n="hist.temp"></span><span data-m="load" data-i18n="hist.load"></span><span data-m="network" data-i18n="hist.network"></span><span data-m="latency" data-i18n="hist.latency"></span><span data-m="fans" data-i18n="hist.fans"></span><span data-m="power" data-i18n="hist.power"></span></div>
-          <div class="histTabs" id="histRange"><span data-r="1h" data-i18n="range.1h"></span><span data-r="6h" data-i18n="range.6h"></span><span data-r="12h" data-i18n="range.12h"></span><span data-r="1d" data-i18n="range.1d"></span><span data-r="7d" data-i18n="range.7d"></span><span data-r="30d" data-i18n="range.30d"></span></div>
-        </div>
-        <canvas id="histCanvas"></canvas>
-        <div class="legend" id="histLegend"></div>
-      </section>
-    </div>
-
-  </div><!-- /tabOverview -->
-
-  <!-- ================= WEATHER ================= -->
-  <div class="tabPane" id="tabWeather" hidden>
-    <section class="card">
-      <div class="cardHead"><h2 data-i18n="card.cities"></h2><div class="meta" data-i18n="cities.meta"></div></div>
-      <div class="triRow" id="mtCities"></div>
+        <div class="seg" id="cityTabs"></div>
+      </div>
+      <!-- The coming hours, with sunrise and sunset in the row and the moon as an icon. -->
+      <div class="hourStrip" id="hourStrip"></div>
+      <div class="forecast" id="forecast" data-rows data-min-rows="2"></div>
+      <div class="wxFoot"><span class="airLine x2" id="airLine" hidden></span><span class="pgr" data-pager hidden></span></div>
     </section>
 
-    <section class="card" id="mtAlertCard" hidden>
-      <h2 data-i18n="card.warnings"></h2>
-      <div id="mtAlerts"></div>
+    <!-- The machine: a line when room is short, the three gauges with their last hour, and more when there is room. -->
+    <section class="block card link" id="sysMini" data-prio="1" data-rich data-c2="1" data-c3="3" data-goto="machine">
+      <div class="bHead fullOnly"><h2 data-i18n="card.system"></h2><span class="meta" id="ovUp"></span></div>
+      <div class="sysLine compactOnly" id="sysLine"></div>
+      <div class="meters fullOnly" id="ovMeters"></div>
+      <div class="kvGrid richOnly" id="ovSysMore"></div>
     </section>
 
-    <section class="card">
-      <div class="cardHead"><h2 data-i18n="card.radar"></h2><div class="meta" id="radarMeta"></div></div>
-      <div id="radarMap"></div>
+    <section class="block card link" id="periphCard" data-prio="2" data-c2="1" data-c3="3" data-goto="machine" hidden>
+      <div class="bHead"><h2 data-i18n="card.devices"></h2></div>
+      <div class="btGrid" id="ovBatt"></div>
+      <div class="storeLine" id="ovStore"></div>
     </section>
 
-    <section class="card">
-      <div class="cardHead"><h2 data-i18n="card.airPollen"></h2><div class="meta" id="mtAirMeta"></div></div>
-      <div id="mtAir"></div>
-      <div id="mtPollens"></div>
+    <section class="block card link" id="homeCard" data-prio="2" data-c2="2" data-c3="1" data-goto="house" hidden>
+      <div class="bHead"><h2 data-i18n="tab.house"></h2><span class="meta" id="homeMeta"></span></div>
+      <div class="roomLines" id="homeList"></div>
+      <div class="sceneRow" id="homeScenes"></div>
     </section>
 
-    <section class="card">
-      <div class="cardHead"><h2 data-i18n="card.next48"></h2><div class="meta" id="mtHourMeta"></div></div>
+    <section class="block card link" id="energyMini" data-prio="2" data-c2="2" data-c3="2" data-goto="energy" hidden>
+      <div class="bHead"><h2 data-i18n="tab.energy"></h2></div>
+      <div class="readouts" id="energyMiniRow"></div>
+    </section>
+  </div>
+
+  <!-- ================= WEATHER: one page, the radar and the snow behind a button ================= -->
+  <div class="tabPane" id="tabWeather" data-fit hidden>
+    <section class="block card" data-prio="1" data-c2="1" data-c3="1">
+      <div class="bHead wrapHead"><div class="seg" id="mtCities"></div><div class="chips" id="mtViews"></div></div>
+      <div class="mtNow" id="mtNow"></div>
+    </section>
+
+    <section class="block card" id="mtAlertCard" data-prio="1" data-c2="1" data-c3="1" hidden>
+      <div class="bHead"><h2 data-i18n="card.warnings"></h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="mtAlerts" data-rows data-min-rows="1"></div>
+    </section>
+
+    <section class="block card" id="mtHoursCard" data-prio="1" data-rich data-c2="1" data-c3="2">
+      <div class="bHead"><h2 data-i18n="card.next48"></h2><span class="meta" id="mtHourMeta"></span></div>
       <div id="mtHours"></div>
+      <!-- Rich look: the 48 hours as a curve, with the rain as bars and the wind as a dashed line. -->
+      <div class="chartBox richOnly" id="mtCurve"></div>
     </section>
 
-    <section class="card" id="pressureCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.pressure"></h2><div class="meta" id="pressureMeta"></div></div>
-      <div class="pressure" id="pressureBody"></div>
+    <section class="block card" id="mtWeekCard" data-prio="1" data-rich data-c2="2" data-c3="3">
+      <div class="bHead"><h2 data-i18n="card.week"></h2><span class="meta" id="mtWeekMeta"></span><span class="pgr" data-pager hidden></span></div>
+      <div class="rows weekRows" id="mtWeek" data-rows data-min-rows="4"></div>
+      <div class="chartBox richOnly" id="mtWeekCurve"></div>
     </section>
 
-    <section class="card">
-      <div class="cardHead"><h2 data-i18n="card.week"></h2><div class="meta" id="mtWeekMeta"></div></div>
-      <table id="mtWeek"></table>
+    <section class="block bare" id="mtTilesBlock" data-prio="2" data-rich data-c2="2" data-c3="2">
+      <div class="tileRow" id="mtTiles"></div>
+      <!-- Rich look: each pollutant and each pollen. -->
+      <div class="kvGrid richOnly" id="mtAirMore"></div>
     </section>
 
-    <section class="card" id="snowCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.snow"></h2><div class="meta" id="snowMeta"></div></div>
+    <!-- Only with snow on the ground or coming. -->
+    <section class="block card" id="snowCard" data-prio="2" data-c2="2" data-c3="3" hidden>
+      <div class="bHead"><h2 data-i18n="card.snow"></h2><span class="meta" id="snowMeta"></span><span class="pgr" data-pager hidden></span></div>
       <div id="snowTop"></div>
-      <div id="snowList"></div>
+      <div class="rows" id="snowList" data-rows data-min-rows="2"></div>
+    </section>
+
+    <!-- The radar in the page when there is room for it; behind its button otherwise. -->
+    <section class="block card" id="mtRadarInline" data-prio="4" data-c2="1" data-c3="1">
+      <div class="bHead"><h2 data-i18n="card.radar"></h2><span class="meta" id="radarMetaInline"></span></div>
+      <div id="radarSlot"></div>
+    </section>
+
+    <!-- Sub-view: the radar is only loaded once asked for. -->
+    <section class="block card" data-view="radar" data-prio="1" data-grow="1">
+      <div class="bHead"><h2 data-i18n="card.radar"></h2><span class="meta" id="radarMeta"></span><button type="button" class="chip" data-wx-view="main" data-i18n="back"></button></div>
+      <div id="radarHome"><div id="radarMap" data-viewport></div></div>
+    </section>
+  </div>
+
+  <!-- ================= HOUSE: the plan, who is home, the scenes, one tile per device ================= -->
+  <div class="tabPane" id="tabHouse" data-fit data-colw="3,2" data-max-cols="2" hidden>
+    <section class="block card planCard" id="planCard" data-prio="1" data-grow="3" data-c2="1" data-hmin="240" hidden>
+      <div class="planBar"><div class="chips planRooms" id="planRooms"></div><div class="segmented planViews" id="planViews"></div></div>
+      <div class="planStage" id="planStage" data-viewport></div>
+      <button type="button" class="planRecenter" id="planRecenter" hidden></button>
+      <p class="planNote dim" id="planNote" hidden></p>
+    </section>
+    <section class="block bare houseBar" id="houseBar" data-prio="2" data-c2="2" hidden>
+      <div class="presence" id="presence" hidden></div>
+      <div class="sceneBar" id="sceneBar" hidden></div>
+      <button type="button" class="chip modulesBtn" id="modulesBtn" data-i18n="house.modules"></button>
+    </section>
+    <section class="block bare tilesBlock" id="tilesBlock" data-prio="1" data-grow="1" data-c2="2">
+      <div class="tilesHead"><span class="pgr" data-pager hidden></span></div>
+      <div class="tiles" id="tileGrid" data-rows data-min-rows="2"></div>
+    </section>
+    <section class="block card" id="houseEmpty" data-prio="1" data-c2="2" hidden>
+      <h2 data-i18n="card.houseEmpty"></h2>
+      <p class="note" data-i18n="house.empty"></p>
+    </section>
+  </div>
+
+  <!-- ================= ENERGY ================= -->
+  <div class="tabPane" id="tabEnergy" data-fit hidden>
+    <section class="block card" id="tempoCard" data-prio="1" data-c2="1" data-c3="1" hidden>
+      <div class="bHead"><h2 data-i18n="card.tempo"></h2><span class="meta" id="tempoMeta"></span></div>
+      <div class="tempoDays" id="tempoDays"></div>
+      <div class="readouts x2" id="tempoLeft"></div>
+      <!-- The month, each past day in its color. -->
+      <div class="tempoCal fullOnly" id="tempoCal"></div>
+    </section>
+    <section class="block card" id="carbonCard" data-prio="2" data-c2="1" data-c3="1" hidden>
+      <div class="bHead"><h2 data-i18n="energy.carbon"></h2><span class="meta">éCO2mix</span></div>
+      <div class="readouts" id="carbonRow"></div>
+      <div class="chartBox fullOnly" id="carbonCurve"></div>
+    </section>
+    <section class="block card" id="pcEnergyCard" data-prio="1" data-c2="1" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.pcEnergy"></h2><span class="meta" id="pcEnergyMeta"></span></div>
+      <div class="readouts" id="pcEnergyRow"></div>
+    </section>
+    <!-- What is counted: the PC and the units that count for themselves. Not the whole home. -->
+    <section class="block card" id="totalCard" data-prio="2" data-c2="1" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.totalEnergy"></h2><span class="meta" data-i18n="energy.totalMeta"></span></div>
+      <div class="readouts" id="totalRow"></div>
+    </section>
+    <!-- Only with a Linky module answering. -->
+    <section class="block card" id="meterCard" data-prio="1" data-c2="2" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.meter"></h2><span class="meta" id="meterMeta"></span></div>
+      <div class="readouts" id="meterRow"></div>
+    </section>
+    <section class="block card" id="acEnergyCard" data-prio="1" data-c2="2" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.acEnergy"></h2><span class="meta" data-i18n="energy.acMeta"></span><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="acEnergyRows" data-rows data-min-rows="2"></div>
+      <!-- The week day by day, one tone a unit. -->
+      <div class="chartBox fullOnly" id="acChart"></div>
+    </section>
+    <section class="block card" id="yearCard" data-prio="2" data-c2="2" data-c3="3" hidden>
+      <div class="bHead"><h2 data-i18n="card.year"></h2><span class="meta" id="yearMeta"></span></div>
+      <div class="yearBody" id="yearBody"></div>
     </section>
   </div>
 
   <!-- ================= MACHINE ================= -->
-  <div class="tabPane" id="tabMachine" hidden>
-    <section class="card" id="machCard" hidden><h2 data-i18n="card.machine"></h2><div id="machBody"></div><div class="winStatus" id="winStatus" hidden></div></section>
-    <section class="card" id="changeCard" hidden>
-      <h2 data-i18n="card.changes"></h2>
-      <div id="changeBody"></div>
+  <div class="tabPane" id="tabMachine" data-fit hidden>
+    <section class="block card" id="sysCard" data-prio="1" data-grow="2" data-c2="1" data-c3="1">
+      <div class="bHead"><h2 data-i18n="card.system"></h2><span class="meta" id="uptimeVal"></span></div>
+      <div id="lhmStatus" hidden></div>
+      <div class="meters" id="meters"></div>
+      <div class="dl x2" id="sysList"></div>
+      <div class="histCtl">
+        <div class="histTabs" id="histMetric"><span data-m="temp" data-i18n="hist.temp"></span><span data-m="load" data-i18n="hist.load"></span><span data-m="network" data-i18n="hist.network"></span><span data-m="latency" data-i18n="hist.latency"></span><span data-m="fans" data-i18n="hist.fans"></span><span data-m="power" data-i18n="hist.power"></span></div>
+        <div class="histTabs" id="histRange"><span data-r="1h" data-i18n="range.1h"></span><span data-r="6h" data-i18n="range.6h"></span><span data-r="12h" data-i18n="range.12h"></span><span data-r="1d" data-i18n="range.1d"></span><span data-r="7d" data-i18n="range.7d"></span><span data-r="30d" data-i18n="range.30d"></span></div>
+      </div>
+      <canvas id="histCanvas"></canvas>
+      <div class="legend" id="histLegend"></div>
     </section>
-    <section class="card" id="crashCard" hidden><h2 data-i18n="card.incidents"></h2><div id="crashBody"></div></section>
-    <section class="card"><h2 data-i18n="card.processes"></h2><table id="procTable"></table></section>
-    <section class="card" id="netCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.network"></h2><div class="meta" id="netMeta"></div></div>
+
+    <section class="block card" id="changeCard" data-prio="1" data-c2="2" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.changes"></h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="changeBody" data-rows data-min-rows="1"></div>
+    </section>
+
+    <section class="block card" id="crashCard" data-prio="1" data-c2="2" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.incidents"></h2><span class="pgr" data-pager hidden></span><button type="button" class="chip" id="crashMore" data-i18n="more" hidden></button></div>
+      <div id="crashTop"></div>
+      <div class="rows" id="crashList" data-rows data-min-rows="1"></div>
+    </section>
+
+    <section class="block card" id="machCard" data-prio="2" data-c2="2" data-c3="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.machine"></h2><button type="button" class="chip" id="machMore" data-i18n="more"></button></div>
+      <div class="machShort" id="machShort"></div>
+      <div class="winStatus" id="winStatus" hidden></div>
+    </section>
+
+    <section class="block card" id="storeCard" data-prio="2" data-c2="1" data-c3="3">
+      <div class="bHead"><h2 data-i18n="card.storage"></h2></div>
+      <div id="diskList"></div>
+      <div id="ssdHealth" hidden></div>
+    </section>
+
+    <section class="block card" id="battCard" data-prio="2" data-c2="1" data-c3="3">
+      <div class="bHead"><h2 data-i18n="card.devices"></h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="btList" data-rows data-min-rows="2"></div>
+    </section>
+
+    <section class="block card" id="netCard" data-prio="2" data-c2="2" data-c3="3" hidden>
+      <div class="bHead"><h2 data-i18n="card.network"></h2><span class="meta" id="netMeta"></span></div>
       <div class="readouts" id="netRow"></div>
-    </section>
-    <section class="card" id="servicesCard" hidden>
-      <h2 data-i18n="card.services"></h2>
-      <div id="servicesList"></div>
-    </section>
-    <section class="card" id="yearCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.year"></h2><div class="meta" id="yearMeta"></div></div>
-      <div id="yearBody"></div>
+      <div class="readouts x2" id="boxRow" hidden></div>
     </section>
   </div>
 
   <!-- ================= TOOLS ================= -->
-  <div class="tabPane" id="tabTools" hidden>
-    <div id="toolsList" class="err" data-i18n="loading"></div>
-    <section class="card" id="fuelCard" hidden>
-      <div class="cardHead"><h2 data-i18n="card.fuel"></h2><div class="meta" id="fuelMeta"></div></div>
-      <div class="fuelGrid" id="fuelList"></div>
+  <div class="tabPane" id="tabTools" data-fit hidden>
+    <section class="block card" id="newsCard" data-prio="1" hidden>
+      <div class="bHead"><h2 data-i18n="card.news"></h2><span class="meta" id="newsMeta"></span><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" id="newsRows" data-rows data-min-rows="1"></div>
     </section>
-  </div>
-
-  <!-- ================= HOUSE ================= -->
-  <div class="tabPane" id="tabHouse" hidden>
-    <!-- The plan of the home when the house service has one, then the scenes as buttons
-         and one tile per device, all rooms in one grid. Everything is drawn from the
-         service, and the whole fits the screen (fitHouse in house.js). -->
-    <section class="card planCard" id="planCard" hidden>
-      <div class="planBar"><div class="chips planRooms" id="planRooms"></div><div class="segmented planViews" id="planViews"></div></div>
-      <div class="planStage" id="planStage"></div>
-      <button type="button" class="planRecenter" id="planRecenter" hidden></button>
-      <p class="planNote dim" id="planNote" hidden></p>
+    <!-- one block per group of config.json, written by tools.js -->
+    <!-- The machine itself: its graphics driver, its BIOS, what Windows still has to install. -->
+    <section class="block card" id="pcUpdCard" data-prio="2" hidden>
+      <div class="bHead"><h2 data-i18n="card.pcUpdates"></h2><span class="meta" id="pcUpdMeta"></span></div>
+      <div class="pcUpdRows" id="pcUpdRows"></div>
     </section>
-    <div class="sceneBar" id="sceneBar" hidden></div>
-    <div class="tiles" id="tileGrid"></div>
-    <section class="card" id="houseEmpty">
-      <h2 data-i18n="card.houseEmpty"></h2>
-      <p class="note" data-i18n="house.empty"></p>
+    <section class="block card fuelCard" id="fuelCard" data-prio="2" data-grow="1" data-hmax="660" hidden>
+      <div class="bHead"><h2 data-i18n="card.fuel"></h2><span class="meta" id="fuelMeta"></span><span class="pgr" data-pager hidden></span></div>
+      <div class="rows fuelGrid" id="fuelList" data-rows data-min-rows="2"></div>
+      <!-- The cheapest price day after day, from what the agent kept. -->
+      <div class="chartBox fullOnly" id="fuelCurve" hidden></div>
     </section>
   </div>
 

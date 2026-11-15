@@ -20,6 +20,17 @@ const URI = {
 };
 const STATE_TTL_MS = 10000, OFF_TTL_MS = 20000, LISTS_TTL_MS = 10 * 60 * 1000, ANSWER_MS = 4000;
 
+/* The registration every open-source client sends is signed with a test certificate of LG.
+ * Firmware from 2026 refuses it ("403 Pairing rejected: blacklisted certificate detected"),
+ * at pairing and at every connection after. Those sets take the same request without its
+ * signature, the signed permissions asked for in the open. Older sets keep the signed one:
+ * a key they gave for it may not be honored without it. */
+const BLACKLISTED = /blacklisted certificate/i;
+function unsigned(payload) {
+  const { signed = {}, signatures, ...rest } = payload.manifest;
+  return { ...payload, manifest: { ...rest, permissions: [...new Set([...(rest.permissions || []), ...(signed.permissions || [])])] } };
+}
+
 // The packet that wakes a network card: six FF bytes, then its address sixteen times.
 function magicPacket(mac) {
   const bytes = String(mac || '').split(/[:-]/).map((b) => parseInt(b, 16));
@@ -97,12 +108,17 @@ function create({ openSocket = ws.open, udp = dgram, now = Date.now, answerMs: p
       const timer = setTimeout(() => { set.waiting.delete('register_0'); reject(new DeviceError(`${device.name}: ${key ? 'no answer to the registration' : 'pairing not accepted on the screen'}`)); }, answerMs);
       set.waiting.set('register_0', { resolve, reject, timer });
     });
-    socket.send(JSON.stringify({ type: 'register', id: 'register_0', payload: { ...manifest, ...(key ? { 'client-key': key } : {}) } }));
+    socket.send(JSON.stringify({ type: 'register', id: 'register_0', payload: { ...(set.unsigned ? unsigned(manifest) : manifest), ...(key ? { 'client-key': key } : {}) } }));
     try {
       set.key = (await registered)['client-key'] || key;
     } catch (e) {
       socket.close();
       set.socket = null;
+      // a set that refuses the signature is asked once more without it, and from then on only that way
+      if (e instanceof DeviceError && BLACKLISTED.test(e.message) && !set.unsigned) {
+        set.unsigned = true;
+        return dial(device, { key, onPrompt, answerMs });
+      }
       throw e;
     }
     return set;
@@ -197,4 +213,4 @@ function create({ openSocket = ws.open, udp = dgram, now = Date.now, answerMs: p
   return { capabilities, state, set, pair, list: async () => [] };
 }
 
-module.exports = { create, normalize, magicPacket, URI };
+module.exports = { create, normalize, magicPacket, unsigned, URI };

@@ -1,6 +1,6 @@
 # House API
 
-The house service drives the lights, air conditioners, heaters and shutters of a home behind one JSON API, and knows where they stand on its floor plan. Vigie's House tab is a client of it, and so will be the phone apps. It has no npm dependency and does not need Vigie.
+The house service drives the lights, air conditioners, televisions, heaters and shutters of a home behind one JSON API, over the local network, and knows where they stand on its floor plan. Vigie's House tab is a client of it, and so will be the phone apps. It has no npm dependency and does not need Vigie.
 
 - Base path: `/api/v1`
 - Inside Vigie's agent (the default): `http://localhost:5252/api/v1`
@@ -15,6 +15,8 @@ All addresses, ids and names below are examples.
 **A device only shows what it can do.** Capabilities are detected from the device (the model of an air conditioner, the commands a heater declares), never assumed from its brand.
 
 **The temperature of a room comes from a sensor of its own.** The probe of an air conditioner sits in the unit and reads several degrees above the room: it is reported as `probeTemp`, never as the room's temperature. A room without a sensor has `temperature: null`.
+
+**Local first, and nothing is required.** A device is driven over the local network. Each integration is a module: one whose settings are absent opens no socket, calls nothing, and its devices are left out of the answers. A module that needs an account at a manufacturer is optional, off by default, and says `account: true` in `/modules`.
 
 **A device that fails does not fail the answer.** It comes back with `state.reachable: false` and an `error`. A command to it answers 502.
 
@@ -39,8 +41,8 @@ curl -H "Authorization: Bearer $HOUSE_TOKEN" http://192.0.2.5:5253/api/v1/rooms
 room ─┬─ device (light)    driver govee-lan
       ├─ device (climate)  driver daikin
       ├─ device (heater)   driver cozytouch
-      ├─ device (cover)    a shutter or a blind
-      └─ device (sensor)
+      ├─ device (cover)    a shutter or a blind, driver tahoma-local
+      └─ device (sensor, contact, leak, plug, meter)   driver mqtt
 ```
 
 A device:
@@ -87,11 +89,15 @@ A device:
 | `fan` | climate | `auto`, `quiet`, `1` to `5` |
 | `swing` | climate | `off`, `vertical`, `horizontal`, `both` |
 | `powerful`, `econo`, `streamer` | climate | boolean, each only if the unit has it |
+| `demand`, `demandMax` | climate | demand control, for a unit that has it: `off`, `auto` (the unit limits its power by itself) or `manual` with `demandMax`, the ceiling in % of its nominal power, 40 to 100 by steps of 5. Setting `demandMax` alone switches to `manual` |
+| `scene`, `diy`, `music` | light | one of `options`: the scenes of the maker, the scenes made in its app, the music modes. Only for a lamp reached through its cloud, which is where these lists come from. The state holds the last one asked for, until a plain color replaces it |
 | `boost`, `drying` | heater | boolean. One excludes the other |
 | `windowDetection` | heater | boolean |
 | `schedule` | heater | the weekly program, in the heater's own format (see below) |
 | `schedule` | climate | the weekly program stored in the unit: `{ "type": "program", "perDay": 6, "modes": ["heat", "cool", "dry"] }`. See [Weekly program of an air conditioner](#weekly-program-of-an-air-conditioner) |
-| `position` | cover | 0 (closed) to 100 (open) |
+| `position` | cover | 0 (closed) to 100 (open), whatever the box counts. Only for a motor that reports where it is |
+| `open`, `close`, `stop`, `my` | cover | `{ "type": "action" }` each: set to `true` to send the move. `my` is the favorite position kept in the motor |
+| `mode` | heater (pilot wire) | `comfort`, `eco`, `frost`, `off`. `on: false` is `off`, `on: true` is `comfort` |
 | `mode` | water | `manual`, `eco` (the heater adapts to the habits of the home), `schedule` when the heater is found on a program |
 | `showers` | water | the hot water asked for, in showers |
 | `boost` | water | boolean: heat now, whatever the mode |
@@ -108,10 +114,15 @@ A device:
 | `via` | light | `"cloud"` when the lamp was reached through the Govee cloud fallback |
 | `probeTemp` | climate | temperature read inside the indoor unit, °C. Not the room's |
 | `outdoorTemp` | climate | temperature at the outdoor unit, °C |
-| `energy` | climate | kWh of this indoor unit, heating and cooling together: `today`, `yesterday`, `week` (last 7 days), `month`, `year` |
+| `energy` | climate | kWh of this indoor unit, heating and cooling together: `today`, `yesterday`, `week` (last 7 days), `month`, `year`, and `days`: the last 7 days one by one, today first, each `{ heat, cool }` |
 | `timer` | climate | `{ "enabled": true }` when the on/off timer of the unit is active. Read only |
 | `schedule` | climate | the weekly program stored in the unit (below). A unit that does not describe its entries only gives `{ "enabled": true }` |
 | `temperature` | heater, sensor | °C |
+| `humidity`, `battery` | sensor, contact, leak | %, each when the device reports it. The temperature and the humidity of a sensor are those of its room |
+| `open` | contact | boolean: the door or the window is open |
+| `leak` | leak | boolean |
+| `power`, `energyKwh`, `run` | plug | watts now, kWh counted by the plug, and for the appliance behind it `idle`, `running` or `done`: a cycle is running above 5 W and done after three quiet minutes |
+| `power`, `index`, `tariff` | meter | watts drawn now, the index in kWh, and the current tariff as the meter words it |
 | `showersLeft`, `hotWater`, `temperature`, `setpoint`, `energyKwh` | water | hot water left in showers and in percent, water at mid-height and its target in °C, energy used since the heater was installed. Each only when the heater reports it |
 | `appName` | tv | what is on screen: the name of the input or of the application |
 | `run` | washer | `off`, `idle`, `running`, `paused`, `scheduled`, `done`, `error` |
@@ -233,6 +244,33 @@ The floor plan (see [Plan](#plan)), with the anchors that were left out in `warn
 - 500: the file cannot be read or breaks the schema, with the faults in `details`. The path of the file is never in the answer.
 - Sent with `Cache-Control: no-store`, like every answer of the service.
 
+### `GET /api/v1/modules`
+
+Each integration and where it stands, for a client to list them:
+
+```json
+[
+  { "id": "daikin", "local": true, "account": false, "state": "active", "devices": 3 },
+  { "id": "tahoma-local", "local": true, "account": false, "state": "ready", "devices": 0 },
+  { "id": "cozytouch", "local": false, "account": true, "state": "disabled", "devices": 0 }
+]
+```
+
+`state` is `active` (configured, in use), `ready` (local, written and tested, waiting for its settings or its hardware) or `disabled` (needs an account, and none was given).
+
+### `GET /api/v1/home`
+
+What is known of the home itself rather than of a device. Read from the Freebox when `house.freebox` is set, empty otherwise:
+
+```json
+{
+  "presence": [{ "id": "alex", "name": "Alex", "home": true, "lastSeen": 1794000000000 }],
+  "network": { "state": "up", "media": "ftth", "rateDown": 125000, "rateUp": 20000, "bandwidthDown": 1000000000, "bandwidthUp": 700000000, "lastOutage": { "at": 1794000000000, "minutes": 4 } }
+}
+```
+
+Someone is home when one of their devices is on the network, or was within the last ten minutes: a phone asleep on Wi-Fi goes quiet for a few minutes. Rates are in bytes per second, bandwidths in bits per second, as the box gives them. A box that does not answer leaves both empty, with an `error`.
+
 ### `GET /api/v1/discovery`
 
 What each driver sees, to fill the config: the Govee lamps answering on the LAN with their `device` id, the devices of the Cozytouch account with their `deviceURL`.
@@ -277,7 +315,7 @@ Lengths are in meters. `x` and `y` are on the floor (`y` goes down on a view fro
 |---|---|
 | `rooms` (required) | `id`, the same as the room of the config, so the room's devices and temperature find their floor. `name`, `polygon` (at least 3 `[x, y]` points, the inner faces of the walls), `height`, `floor` (`wood`, `tile`, `concrete`, `carpet`, `none`), which gives its pattern, and optionally `floorColor` (`"#rrggbb"`), its real color. A polygon without a room in the config is fine: a hall, a balcony. Optional `kind`: `outdoor` for a balcony or a loggia (a floor of its own, a rail where no wall closes it), `shaft` for a duct, drawn but not named, `storage` for a closet, named but without a shortcut. Any other value is a room |
 | `walls` | `id`, `a` and `b` (the two ends of its axis), `thickness`. Optional `exterior`: such a wall runs half a thickness past its ends so the corners close |
-| `openings` | `id`, `type` (`door`, `window`, `french-window`, `passage`, `closet`), `wall`, `offset` (meters from the wall's `a` to the near edge of the opening), `width`, `height`, `sill` (height of its bottom edge, 0 for a door). Optional `hinge` (`start` or `end`) and `opensInto` (a room id) draw the leaf of a door, open. `closed: true` draws it shut: a front door |
+| `openings` | `id`, `type` (`door`, `window`, `french-window`, `passage`, `closet`), `wall`, `offset` (meters from the wall's `a` to the near edge of the opening), `width`, `height`, `sill` (height of its bottom edge, 0 for a door). Optional `curtain` on a window: `true`, a color, or `{ "color": "white", "room": "living" }` when the wall stands between two rooms. The curtain is hung by the model: against the wall on the side of the room, its rod just above the head of the window, down to the floor, 15 cm past the window on each side. Optional `hinge` (`start` or `end`) and `opensInto` (a room id) draw the leaf of a door, open. `closed: true` draws it shut: a front door |
 | `furniture` | `id`, `position` (`[x, y]` of its middle), `size` (`[width, depth, height]`, in its own frame). Optional `type` and `params` (see [Furniture](#furniture)), `rotation` (degrees, clockwise on the plan: at 0 its front faces down the plan), `room`, `elevation` (height of its underside: something standing on a cabinet, hung on a wall), `planned` (drawn see-through: not there yet). Without a type it is a plain volume |
 | `anchors` | `deviceId`, and either `position` (`[x, y, z]`) or `openingId` |
 | `wallColor` | optional, the real color of the walls as `"#rrggbb"` |
@@ -309,15 +347,18 @@ A piece of furniture is an instance of a type, with its parameters. The types ar
 | `screen` | a television or a monitor: `stand` (`false` to hang it), `upright` (the size is still the one of the screen lying down), `lit` (a color: the screen is on) |
 | `pc` | a computer case with a glass side: `body`, `glow` (the light inside) |
 | `lamp` | decor, not connected: `style` (`floor`, `arc`, `table`, `arch` for a table lamp on an arch), `color`, `shade`, and for an arc `reach` and `side` |
-| `plant` | `pot`, `leaves` |
+| `plant` | a round pot, stems that each carry a large leaf: `pot`, `leaves`, `stems` (3 to 12), `pebbles` (`false` for bare soil), `stakes` (a number of canes) |
+| `kitchen` | a run of kitchen units, always at the standard height whatever the size says (worktop at 0.90 m, plinth under it): `body`, `top`, `doors`, `hob` and `sink` (each `[from, to]` as fractions of the width), `uppers` (`true`, or a number of doors: wall units from 1.40 to 2.10 m, fixed to the wall behind the run), `splash` (the color of the splashback under them) |
 | `toilet`, `radiator` | `color` |
 | `appliance` | `style`: `fridge`, `washer`, `oven`, `unit` (the outdoor unit of an air conditioner). `color` |
 | `slats` | wooden slats on a wall: `color`, `backing`, `slat` (width), `pitch` |
-| `curtain` | a sheer curtain in front of a window: `color` |
+| `curtain` | a sheer curtain placed by hand, for a window the plan does not describe. A window of the plan takes `curtain` on its opening instead: `color` |
 | `art` | a canvas or a frame on a wall: `color`, `frame`, or `mirror: true`, `round: true` |
 | `mannequin` | a dressmaker's dummy: `color` |
 
 A color is a material by name (`white`, `cream`, `black`, `charcoal`, `grey`, `steel`, `oak`, `walnut`, `pine`, `wicker`, `slate`, `fabric`, `linen`, `leather`, `green`, `terracotta`, `chrome`, `red`) or any `"#rrggbb"`. Real colors are toned to the dark theme when drawn.
+
+Walls follow one rule, whatever the angle: an outside wall that stands behind its rooms, for the eye, is drawn up to the head of the highest window of the home, one that stands in front of them comes down to 0.40 m, and all the walls of one façade move together. A wall between two rooms keeps the cut at 1.25 m. What is fixed to a wall (wall units, a curtain) is cut where that wall is cut; on a wall between two rooms, wall units show when their room is the one being looked at.
 
 Furniture is cut with the walls, at 1.25 m. What is there to be seen (a lamp, a screen, shelves or a canvas on a wall, a plant) may rise half a meter above the cut, and what hangs higher is not drawn. A type the page does not know is drawn as a plain volume.
 
@@ -371,6 +412,10 @@ Under `house` in `config.json`:
         { "device": "living-lamp", "set": { "ambiance": "warm" } }
       ] }
     ],
+    "freebox": { "host": "mafreebox.freebox.fr", "appToken": "", "people": [{ "id": "alex", "name": "Alex", "devices": ["00:00:5E:00:53:A1"] }] },
+    "tahoma": { "host": "gateway-0000-0000-0000.local", "pin": "0000-0000-0000", "token": "" },
+    "mqtt": { "url": "mqtt://192.0.2.9:1883", "username": "", "password": "", "base": "zigbee2mqtt" },
+    "remote": { "url": "", "token": "" },
     "govee": { "cloudFallback": false, "apiKey": "" },
     "cozytouch": { "username": "", "password": "" },
     "lgThinq": { "token": "", "country": "FR", "region": "eic" }
@@ -378,7 +423,9 @@ Under `house` in `config.json`:
 }
 ```
 
-`host`, `port` and `token` only matter when the service runs alone. Secrets can come from the environment instead of the file: `HOUSE_TOKEN`, `GOVEE_API_KEY`, `COZYTOUCH_USERNAME`, `COZYTOUCH_PASSWORD`. `HOUSE_CONFIG` names another config file.
+A block left empty is a module left off. `remote` is for an agent whose house service runs on another machine: with a `url`, the agent starts no service of its own and passes every `/api/v1` request on to that one, with the `token` (see [Access](#access)); the page does not see the difference.
+
+`host`, `port` and `token` only matter when the service runs alone. Secrets can come from the environment instead of the file: `HOUSE_TOKEN`, `GOVEE_API_KEY`, `COZYTOUCH_USERNAME`, `COZYTOUCH_PASSWORD`, `FREEBOX_APP_TOKEN`, `TAHOMA_TOKEN`, `MQTT_PASSWORD`. `HOUSE_CONFIG` names another config file.
 
 `planPath` is the file of the floor plan, kept outside the repository. A relative path starts from Vigie's folder inside the agent, from the folder of the config file when the service runs alone. `HOUSE_PLAN` replaces it. Without it there is no plan and `/plan` answers 404.
 
@@ -390,20 +437,30 @@ Under `house` in `config.json`:
 | `daikin` | Daikin air conditioners with a Wi-Fi adapter | local, HTTP | `ip` |
 | `cozytouch` | Atlantic, Thermor, Sauter heaters and water heaters | Cozytouch cloud | `deviceURL` or `label` (with a bridge), `deviceId` (appliances with their own Wi-Fi) |
 | `lg-webos` | LG televisions | local, WebSocket | `host`, `key` (given by pairing), `mac` (to turn it on), `apps` |
+| `tahoma-local` | Somfy shutters and blinds behind a TaHoma Switch | local, HTTPS | `deviceURL` (given by `/discovery`) |
+| `mqtt` | what a Zigbee2MQTT bridge publishes: sensors, plugs, pilot wire modules, a Linky | local, MQTT | `topic`, or the friendly name of the device as its `name`; `fields` to rename a field |
 | `lg-thinq` | LG washing machines | LG ThinQ cloud | `deviceId`, `location` for a machine with two drums |
 | `demo` | made-up devices of any type, kept in memory | none | `state`, what the device starts with |
 
-**govee-lan.** Each lamp needs "LAN Control" switched on once in the Govee Home app (the lamp, then its settings). A scan goes to `239.255.255.250:4001` on every network card, lamps answer on port 4002, commands go to port 4003. Only one program can listen on 4002: the driver reports an error if Home Assistant or another instance already does. With `house.govee.cloudFallback` and an API key, a lamp that stays silent on the LAN and has a `sku` in its settings is reached through Govee's cloud instead, for a model without LAN support.
+**govee-lan.** Each lamp needs "LAN Control" switched on once in the Govee Home app (the lamp, then its settings). A scan goes to `239.255.255.250:4001` on every network card, lamps answer on port 4002, commands go to port 4003. Only one program can listen on 4002: the driver reports an error if Home Assistant or another instance already does. With `house.govee.cloudFallback` and an API key (optional, account required, off by default), a lamp that stays silent on the LAN and has a `sku` in its settings is reached through Govee's cloud instead, for a model without LAN support. The cloud only stands in for a lamp it reaches: for a lamp it reports offline (no power), Govee answers with the last values it knew, so the lamp stays `lanSilent` instead of being shown lit.
 
-**daikin.** Reserve the IP of each unit on the router. The driver reads what the unit supports from `get_model_info`. Energy comes from the per-unit counters (`get_day_power_ex`, `get_week_power_ex`, `get_year_power_ex`): on a multi-split, `get_week_power` gives the total of the outdoor unit, the same on every indoor unit. The weekly program is read from the unit and written into it (`get_scdltimer_info` gives the layout of an entry, `get_scdltimer_body` the entries of a program, `set_scdltimer_body` and `set_scdltimer_info` take them back). The on/off timer is only reported as active or not.
+**daikin.** Reserve the IP of each unit on the router. The driver reads what the unit supports from `get_model_info`. Demand control is read and set with `get_demand_control` and `set_demand_control` when the model announces it (`dmnd=1`), after the reports of other clients of this API. Energy comes from the per-unit counters (`get_day_power_ex`, `get_week_power_ex`, `get_year_power_ex`): on a multi-split, `get_week_power` gives the total of the outdoor unit, the same on every indoor unit. The weekly program is read from the unit and written into it (`get_scdltimer_info` gives the layout of an entry, `get_scdltimer_body` the entries of a program, `set_scdltimer_body` and `set_scdltimer_info` take them back). The on/off timer is only reported as active or not.
 
-**cozytouch.** Off until `house.cozytouch` holds the email and password of the Cozytouch (or Sauter, Thermor) account. Written after the open-source pyoverkiz library for an electric towel dryer, and tested on simulated answers only. The weekly program is read and written in the heater's own format, as the `schedule` capability: send back what `state.schedule` gave you, modified.
+**freebox.** Not a driver of devices: it fills `/home`. The local Freebox OS API (`http://mafreebox.freebox.fr`), which every box serves on its own network. An application is accepted once, by a press on the box: `node house/pair-freebox.js` asks and prints the `appToken` to keep in the config; `node house/pair-freebox.js --devices <token>` then lists what the box sees, to pick the phones of each person by MAC address. A session is opened with the challenge of the box signed by that token (HMAC-SHA1) and reopened when it ends. The driver only reads: presence comes from the list of hosts (`/lan/browser/pub/`), the state and the rates from `/connection/`. The last outage is read from `/connection/logs/`, whose shape is not verified on a real box: an answer the driver does not understand only leaves `lastOutage` out. Tested on simulated answers.
+
+**tahoma-local.** The local API of a TaHoma Switch (developer mode switched on in the Somfy account, which also gives the token): HTTPS on port 8443 of `gateway-<pin>.local`, a Bearer token, after the open-source [pyoverkiz](https://github.com/iMicknl/python-overkiz-api) client. The box signs its certificate with Overkiz's own authority: that root is shipped beside the driver (`overkiz-root-ca.pem`) and is the only one trusted for this connection, so TLS is checked, never switched off. With a `host` given as an IP, `pin` names the box for the certificate. The box counts a closure (0 open, 100 closed): the service turns it into its own `position` (0 closed, 100 open), to check on the first real shutter. A shutter moved from its wall switch is followed through the events of the box (one listener, fetched at most once a second, registered again when the box drops it). An RTS motor reports no position: it only takes `open`, `close`, `stop` and `my`. Written with no hardware at hand, tested on simulated answers only.
+
+**mqtt.** A dependency-free MQTT 3.1.1 client (`house/mqtt.js`, QoS 0, like `house/ws.js` for WebSocket) and a driver for the devices of a [Zigbee2MQTT](https://www.zigbee2mqtt.io) bridge: one topic per device under `base`, a JSON message at each change, `<topic>/set` to command it, `<topic>/availability` when the bridge says a device is gone. Types: `sensor` (the temperature and humidity of its room), `contact`, `leak`, `plug` (switch, power, and the cycle of the appliance behind it), `heater` for a pilot wire module, `meter` for a Linky read through its TIC output. The connection opens at the first device asked, and a broker that is not there is tried again every 30 s at most. Written with no hardware at hand, tested against a broker simulated in the tests.
+
+**govee-cloud.** Account required, off by default. Some Govee lamps have no LAN API at all (their settings in Govee Home show no "LAN Control"): the cloud is then the only way to them over Wi-Fi. What the driver sends is the API key, the model and the id of the lamp, and the command, nothing about the home. To keep it small, the state of a lamp is asked once a minute at most whatever the clients poll, and the lists of its scenes twice a day. Scenes, DIY scenes and music modes are read from Govee's own lists (`/device/scenes`, `/device/diy-scenes`, the `musicMode` capability of `/user/devices`) and applied by sending back what the list gave. Tested on simulated answers; the control of a DIY scene and of a music mode follows the documented shapes but is not verified on a lamp.
+
+**cozytouch.** Account required. Off until `house.cozytouch` holds the email and password of the Cozytouch (or Sauter, Thermor) account. Written after the open-source pyoverkiz library for an electric towel dryer, and tested on simulated answers only. The weekly program is read and written in the heater's own format, as the `schedule` capability: send back what `state.schedule` gave you, modified.
 
 The Cozytouch account answers on two clouds. Heaters behind a Cozytouch bridge are on Overkiz, as above. Appliances with their own Wi-Fi, such as recent water heaters, are on Atlantic's newer API, read after the open-source [gduteil/cozytouch](https://github.com/gduteil/cozytouch) integration: a device there has a number, `deviceId`, and `/discovery` lists both kinds. A water heater (`"type": "water"`) gives its mode, the showers asked for and left, its boost and the absence of the home. The absence belongs to the account: setting it from here sets it for every appliance of the account, as the Cozytouch app does. Tested on simulated answers only.
 
-**lg-webos.** No cloud: the set is asked on the local network, over the WebSocket the LG remote apps use (port 3001, or 3000 on older sets), after the open-source [aiowebostv](https://github.com/home-assistant-libs/aiowebostv) library. A set accepts a client once, on its screen: `node house/pair-tv.js <address>` asks, and prints the key to put on the device. Turning it on is a Wake-on-LAN packet to its `mac`, which needs "Turn on via Wi-Fi" (or LAN) switched on in the settings of the set. A set that does not answer is off, not unreachable, so a scene can turn it on. Its certificate is its own and is accepted as such: the driver is for a home network. `apps` lists the ids of the applications to offer (`netflix`, `youtube.leanback.v4`…), none by default. Tested on simulated answers only.
+**lg-webos.** No cloud: the set is asked on the local network, over the WebSocket the LG remote apps use (port 3001, or 3000 on older sets), after the open-source [aiowebostv](https://github.com/home-assistant-libs/aiowebostv) library. A set accepts a client once, on its screen: `node house/pair-tv.js <address>` asks, and prints the key to put on the device. Firmware from 2026 refuses the signed registration every open-source client used to send ("403 Pairing rejected: blacklisted certificate detected"): the driver then asks again without the signature, at pairing and at each connection, and such a set grants everything the service uses (the signature only added the right to write settings, which it does not use). Turning it on is a Wake-on-LAN packet to its `mac`, which needs "Turn on via Wi-Fi" (or LAN) switched on in the settings of the set. A set that does not answer is off, not unreachable, so a scene can turn it on. Its certificate is its own and is accepted as such: the driver is for a home network. `apps` lists the ids of the applications to offer (`netflix`, `youtube.leanback.v4`…), none by default. Tested on simulated answers only.
 
-**lg-thinq.** Off until `house.lgThinq` holds a personal access token of the LG account, made on <https://connect-pat.lgthinq.com>: `{ "token": "…", "country": "FR", "region": "eic" }` (`eic` for Europe, `aic` for the Americas, `kic` for Asia). It is the official ThinQ Connect API, after LG's own [pythinqconnect](https://github.com/thinq-connect/pythinqconnect) client. A washing machine (`"type": "washer"`) gives its state, the time left and the end of its cycle. The API does not say which program runs. A cycle can be started from here only when "Remote Start" was pressed on the machine, which is LG's rule. The cloud is asked once a minute at most. Tested on simulated answers only.
+**lg-thinq.** Account required. Off until `house.lgThinq` holds a personal access token of the LG account, made on <https://connect-pat.lgthinq.com>: `{ "token": "…", "country": "FR", "region": "eic" }` (`eic` for Europe, `aic` for the Americas, `kic` for Asia). It is the official ThinQ Connect API, after LG's own [pythinqconnect](https://github.com/thinq-connect/pythinqconnect) client. A washing machine (`"type": "washer"`) gives its state, the time left and the end of its cycle. The API does not say which program runs. A cycle can be started from here only when "Remote Start" was pressed on the machine, which is LG's rule. The cloud is asked once a minute at most. Tested on simulated answers only.
 
 **demo.** For the tests, the screenshots and trying the House tab without any hardware. `house/demo/config.json` is a made-up flat using it, with its plan beside it:
 

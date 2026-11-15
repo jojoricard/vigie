@@ -42,13 +42,13 @@ test('the slot hours come from the settings', () => {
 /* ---------- Fingerprint and cache ---------- */
 const context = (toAnalyze = {}, warnings = []) => ({ alreadyShown: { warnings }, toAnalyze });
 
-test('the fingerprint lists the incident, the rain to come, the warnings and the services down', () => {
+test('the fingerprint lists the incident, the rain to come, the warnings and the alerts in progress', () => {
   const ev = events(context({
     recentIncident: { type: 'Blue screen', when: 'today at 15:02', at: 1794578520000 },
     next12h: { rainSoon: { from: '16:00' }, rainTotalMm: 3 },
-    servicesDown: [{ name: 'NAS', state: 'down', since: '14:02' }],
+    alerts: [{ id: 'unreachable:living-ac', what: 'Air conditioner unreachable: Living room', since: '14:02' }],
   }, ['Rain (Rhône)']));
-  assert.deepEqual(ev, ['incident:1794578520000', 'rain', 'service:NAS', 'warning:Rain (Rhône)']);
+  assert.deepEqual(ev, ['alert:unreachable:living-ac', 'incident:1794578520000', 'rain', 'warning:Rain (Rhône)']);
 });
 
 test('a context without any event, or without its two parts, has an empty fingerprint', () => {
@@ -57,10 +57,10 @@ test('a context without any event, or without its two parts, has an empty finger
 });
 
 const SLOT = { day: '2026-11-13', slot: 'midday' };
-const cached = { day: '2026-11-13', slot: 'midday', lang: 'fr', events: ['rain', 'service:NAS'], text: 'Pluie à 17 h.' };
+const cached = { day: '2026-11-13', slot: 'midday', lang: 'fr', events: ['rain', 'alert:battery:Mouse'], text: 'Pluie à 17 h.' };
 
 test('the cached text holds for its slot, its language and the events it knew', () => {
-  assert.equal(isFresh(cached, SLOT, 'fr', ['rain', 'service:NAS']), true);
+  assert.equal(isFresh(cached, SLOT, 'fr', ['rain', 'alert:battery:Mouse']), true);
   assert.equal(isFresh(cached, SLOT, 'fr', ['rain']), true, 'an event that ended is not a reason to rewrite');
   assert.equal(isFresh(cached, SLOT, 'fr', []), true);
 });
@@ -178,7 +178,7 @@ async function bareState() {
       daily: { time: days, temperature_2m_max: days.map(() => 15), temperature_2m_min: days.map(() => 6), precipitation_probability_max: days.map(() => 10), weather_code: days.map(() => 3) },
     }],
     alerts: [], pollenSummary: [], aqiSummary: null, nameDay: '', changes: [], crashCounts: null, lastCrash: null,
-    energy: null, holidays: null, services: null, network: null, house: null, fuel: null,
+    energy: null, holidays: null, notices: [], network: null, house: null, fuel: null,
   });
   return state;
 }
@@ -206,7 +206,8 @@ test('sources that answer with nothing to say are left out too', async () => {
     // Tempo blue tomorrow and a projection 10 % above last month: nothing to do about either
     energy: { tempo: { code: 3 }, tempoTomorrow: { code: 1 }, consumption: { monthly: { projection: 55, previous: { month: '2026-10', kwh: 50 } } } },
     holidays: { publicHoliday: null, school: null },
-    services: [{ name: 'Router', state: 'up' }, { name: 'NAS', state: null }],
+    // a warning, Tempo, an incident and the laundry have their own field: as alerts they would be said twice
+    notices: [{ id: 'warning:rain:Rhône', kind: 'warning', type: 'rain', area: 'Rhône', severity: 'orange', since: Date.now() }, { id: 'laundry:washer', kind: 'laundry', name: 'Washer', room: 'Bathroom', severity: 'yellow', since: Date.now() }],
     network: { samples: 2880, loss: 0.4, failingNow: false },
     // 14° outside: heating is expected, an idle unit or a fan says nothing
     house: { rooms: [{ id: 'salon', name: 'Salon', devices: [{ id: 'salon-ac', type: 'climate', state: { reachable: false } }] }, { id: 'bureau', name: 'Bureau', devices: [{ id: 'bureau-ac', type: 'climate', state: { reachable: true, on: true, mode: 'heat', setpoint: 20, probeTemp: 23 } }] }, { id: 'chambre', name: 'Chambre', devices: [{ id: 'chambre-ac', type: 'climate', state: { reachable: true, on: false, mode: 'cool' } }] }, { id: 'cuisine', name: 'Cuisine', devices: [{ id: 'cuisine-ac', type: 'climate', state: { reachable: true, on: true, mode: 'fan' } }] }, { id: 'hall', name: 'Hall', devices: [{ id: 'hall-lamp', type: 'light', state: { reachable: true, on: true } }] }] },
@@ -229,7 +230,7 @@ test('each source that has something to say gets its field', async () => {
     alerts: [{ type: 'rain', severity: 'yellow', area: 'Rhône' }],
     energy: { tempo: { code: 1 }, tempoTomorrow: { code: 3 }, consumption: { monthly: { projection: 65, previous: { month: '2026-10', kwh: 50 } } } },
     holidays: { publicHoliday: { date: '2026-11-11', code: 'armistice' }, school: null },
-    services: [{ name: 'Router', state: 'up' }, { name: 'NAS', state: 'down', since: Date.now() }],
+    notices: [{ id: 'battery:Mouse', kind: 'battery', name: 'Mouse', level: 9, severity: 'yellow', since: Date.now() }],
     network: { samples: 2880, loss: 3.2, failingNow: false },
     house: { rooms: [{ id: 'bureau', name: 'Bureau', devices: [{ id: 'bureau-ac', type: 'climate', state: { reachable: true, on: true, mode: 'cool', setpoint: 19, probeTemp: 25 } }] }, { id: 'salon', name: 'Salon', devices: [{ id: 'salon-ac', type: 'climate', state: { reachable: true, on: true, mode: 'heat', setpoint: 21, probeTemp: 24 } }] }, { id: 'chambre', name: 'Chambre', devices: [{ id: 'chambre-ac', type: 'climate', state: { reachable: false } }] }] },
     fuel: [{ type: 'e10', stations: [{ price: 1.759 }], previous: { date: '2026-11-07', price: 1.699 } }],
@@ -241,7 +242,7 @@ test('each source that has something to say gets its field', async () => {
   assert.deepEqual(a.tempo, { today: 'Blue', tomorrow: 'Red' });
   assert.equal(a.holidays.publicHoliday.name, 'Armistice Day');
   assert.equal('schoolBreak' in a.holidays, false);
-  assert.deepEqual(a.servicesDown.map((s) => [s.name, s.state]), [['NAS', 'down']]);
+  assert.deepEqual(a.alerts.map((x) => [x.id, x.what]), [['battery:Mouse', 'Mouse: battery low: 9 %']]);
   assert.deepEqual(a.network, { lossPct24h: 3.2, failingNow: false });
   // cooling at 14° outside is flagged, heating is not, and no probe reading leaves the page
   assert.deepEqual(a.house, { outdoorTemp: 14, airConditioners: [{ room: 'Bureau', mode: 'Cool', running: true }] });
@@ -250,7 +251,7 @@ test('each source that has something to say gets its field', async () => {
   assert.equal(a.fuel[0].change, 0.06);
   assert.equal(a.recentIncident.at, crashAt);
   // the agent reads its events from this very context
-  assert.deepEqual(events(c), [`incident:${crashAt}`, 'service:NAS', 'warning:Rain (Rhône)']);
+  assert.deepEqual(events(c), ['alert:battery:Mouse', `incident:${crashAt}`, 'warning:Rain (Rhône)']);
 });
 
 test('a heating left on is flagged above 18° outside, a white Tempo day is announced', async () => {

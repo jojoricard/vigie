@@ -101,18 +101,25 @@ export function openingFrame(plan, opening) {
 }
 
 /* ---------- Walls and the eye ----------
-   A wall with rooms on one side only is seen either from its rooms or from its back.
-   From its back it hides what stands along it, so it comes down. From its rooms it
-   hides nothing, so it rises to show its windows whole: on a wall cut at 1.25 m a
-   window that starts at 1 m is a strip of glass. A wall between two rooms keeps the
-   cut. Openings are cut where their wall is, never moved.
+   One rule, for every wall and every angle:
+   - a wall between two rooms keeps the cut (CUT_HEIGHT): lowering it would uncover the
+     back of one room's furniture, raising it would hide the other;
+   - a wall with rooms on one side only is either behind them for the eye, and it stands
+     high, or in front of them, and it comes down to LOW_WALL. High is one height for
+     the whole home (`highOf`): the head of its highest window, so that every wall at
+     the back stands the same, with or without a window of its own;
+   - seen edge-on it keeps the cut, and seen from above nothing rises nor sinks;
+   - the walls of one façade (on one line, their rooms on the same side) are one piece:
+     they always stand at the same height.
+   Openings are cut where their wall is, never moved.
    `wallInside` is the unit vector from such a wall toward its rooms (null between two
    rooms; a balcony counts when the wall has nothing indoors on either side),
-   `wallDrop` how much of it comes down for a view, from 0 to 1, and `wallHeight` where
-   it is cut: it follows the angle, so a wall sinks or rises as the model turns. */
+   `wallSide` where the wall stands for a view, from -1 (in front of its rooms) to 1
+   (behind them), `wallHeight` where it is cut. */
 export const LOW_WALL = 0.4;      // what is left of a wall in the way, in meters
 const HEAD_ROOM = 0.1;            // wall kept above the highest window
-export function wallInside(plan, wall) {
+const HIGH_WALL = 2.1;            // a home without any window still has walls at the back
+function sideOf(plan, wall) {
   const f = wallFrame(wall), reach = wall.thickness / 2 + 0.2;
   const count = (side, indoors) => [0.1, 0.3, 0.5, 0.7, 0.9].filter((k) => {
     const room = roomAt(plan, wall.a[0] + f.ux * f.length * k + f.nx * reach * side, wall.a[1] + f.uy * f.length * k + f.ny * reach * side);
@@ -123,32 +130,98 @@ export function wallInside(plan, wall) {
     if (plus && minus) return null;
     if (plus || minus) return [f.nx * (plus ? 1 : -1), f.ny * (plus ? 1 : -1)];
   }
-  return null;
+  return undefined;               // no room on either side: nothing to go by
 }
-export function wallDrop(inside, azimuth, elevation) {
+// The line a wall stands on, whichever way it was drawn: its direction and its distance from the origin.
+function lineOf(wall) {
+  const f = wallFrame(wall), flip = f.nx < -1e-9 || (Math.abs(f.nx) <= 1e-9 && f.ny < 0) ? -1 : 1;
+  const nx = f.nx * flip, ny = f.ny * flip;
+  return `${Math.round(nx * 50)},${Math.round(ny * 50)},${Math.round((wall.a[0] * nx + wall.a[1] * ny) * 10)}`;
+}
+/* The side of every wall, worked out once per plan. A stretch of wall that has no room
+   beside it (the end of a façade past the last room) takes the side of the façade it
+   continues: one façade, one behaviour. */
+const sides = new WeakMap();
+function insideOf(plan, wall) {
+  if (!sides.has(plan)) {
+    const known = new Map((plan.walls || []).map((w) => [w, sideOf(plan, w)]));
+    for (const w of plan.walls || []) {
+      if (known.get(w) !== undefined) continue;
+      const kin = (plan.walls || []).find((o) => o !== w && known.get(o) && lineOf(o) === lineOf(w));
+      known.set(w, kin ? known.get(kin) : null);
+    }
+    sides.set(plan, known);
+  }
+  const known = sides.get(plan);
+  return known.has(wall) ? known.get(wall) : sideOf(plan, wall) || null;
+}
+export const wallInside = (plan, wall) => insideOf(plan, wall);
+// Walls that stand and fall together: same line, rooms on the same side. null for a wall between two rooms.
+export function facadeOf(plan, wall) {
+  const inside = insideOf(plan, wall);
+  return inside ? `${lineOf(wall)}|${Math.round(inside[0])},${Math.round(inside[1])}` : null;
+}
+/* Where a wall stands for the eye: 1 behind its rooms, -1 in front of them, 0 seen
+   edge-on or from above, and smoothly in between so a wall glides while the model turns. */
+export function wallSide(inside, azimuth, elevation) {
   if (!inside) return 0;
   const { back } = viewAxes(azimuth, elevation);
-  // how far behind the wall its rooms are for the eye: nothing from above, all of it from the front
-  const k = clamp((-(inside[0] * back[0] + inside[1] * back[1]) - 0.12) / 0.2, 0, 1);
-  return k * k * (3 - 2 * k);
+  // `back` goes to the eye and flattens as the eye rises: nothing from above, all of it from the front
+  const toward = inside[0] * back[0] + inside[1] * back[1];
+  const k = clamp((Math.abs(toward) - 0.12) / 0.2, 0, 1);
+  return Math.sign(toward) * k * k * (3 - 2 * k);
 }
-// The height a wall needs to show its windows whole, at least the cut.
+// How much of a wall comes down for a view, from 0 to 1.
+export const wallDrop = (inside, azimuth, elevation) => Math.max(0, -wallSide(inside, azimuth, elevation));
+// The height a wall needs to show its own windows whole, at least the cut.
 export function wallTall(plan, wall) {
   const heads = (plan.openings || []).filter((o) => o.wall === wall.id && (o.type === "window" || o.type === "french-window")).map((o) => (o.sill || 0) + o.height + HEAD_ROOM);
   return Math.max(CUT_HEIGHT, ...heads);
 }
-const sides = new WeakMap();      // the side of a wall does not change: worked out once per plan
-function insideOf(plan, wall) {
-  if (!sides.has(plan)) sides.set(plan, new Map());
-  const known = sides.get(plan);
-  if (!known.has(wall)) known.set(wall, wallInside(plan, wall));
-  return known.get(wall);
+// The height of every wall that stands behind its rooms: the head of the highest window of the home.
+const highs = new WeakMap();
+export function highOf(plan) {
+  if (!highs.has(plan)) {
+    const tall = Math.max(CUT_HEIGHT, ...(plan.walls || []).map((w) => wallTall(plan, w)));
+    highs.set(plan, tall > CUT_HEIGHT ? tall : HIGH_WALL);
+  }
+  return highs.get(plan);
 }
 export function wallHeight(plan, wall, azimuth, elevation) {
-  const inside = insideOf(plan, wall);
-  if (!inside) return CUT_HEIGHT;
-  const rise = wallDrop([-inside[0], -inside[1]], azimuth, elevation);
-  return CUT_HEIGHT + rise * (wallTall(plan, wall) - CUT_HEIGHT) - wallDrop(inside, azimuth, elevation) * (CUT_HEIGHT - LOW_WALL);
+  return standHeight(plan, insideOf(plan, wall), azimuth, elevation);
+}
+/* The same rule for what hangs on a wall between two rooms (kitchen wall units): that
+   wall keeps the cut, but what it carries stands or goes as if the wall belonged to the
+   room it hangs in. `inside` points from the wall into that room. */
+export function standHeight(plan, inside, azimuth, elevation) {
+  const side = wallSide(inside, azimuth, elevation);
+  return CUT_HEIGHT + (side > 0 ? side * (highOf(plan) - CUT_HEIGHT) : side * (CUT_HEIGHT - LOW_WALL));
+}
+
+/* ---------- Curtains ----------
+   A curtain belongs to its window: an opening with `curtain` gets one, hung on the side
+   of the room. It lies against the wall, its rod sits just above the head of the
+   window, it falls to the floor and reaches a little past the window on each side.
+   Returns { x, y, angle (radians, of the wall), length, top, depth, rodTop } or null. */
+const CURTAIN_PAST = 0.15, CURTAIN_ABOVE = 0.08, CURTAIN_DEPTH = 0.07;
+export function curtainOf(plan, opening) {
+  if (!opening.curtain) return null;
+  const f = openingFrame(plan, opening);
+  if (!f) return null;
+  // the room side: where the wall has its rooms, else the room the plan names, else the side with a room
+  let inside = insideOf(plan, f.wall);
+  if (!inside) {
+    const reach = f.wall.thickness / 2 + 0.2, named = opening.curtain.room || opening.opensInto;
+    const at = (side) => roomAt(plan, f.x + f.nx * reach * side, f.y + f.ny * reach * side);
+    const side = [1, -1].find((k) => { const r = at(k); return r && (named ? r.id === named : r.kind !== "outdoor"); }) || 1;
+    inside = [f.nx * side, f.ny * side];
+  }
+  const off = f.wall.thickness / 2 + CURTAIN_DEPTH / 2 + 0.01, head = (opening.sill || 0) + opening.height;
+  return {
+    x: f.x + inside[0] * off, y: f.y + inside[1] * off, angle: Math.atan2(f.uy, f.ux), inside,
+    length: opening.width + 2 * CURTAIN_PAST, depth: CURTAIN_DEPTH, top: head + CURTAIN_ABOVE, rodTop: head + CURTAIN_ABOVE + 0.03,
+    color: typeof opening.curtain === "object" ? opening.curtain.color || null : typeof opening.curtain === "string" ? opening.curtain : null,
+  };
 }
 
 // The wall closest to a point, to lay a wall unit along it.

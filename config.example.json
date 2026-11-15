@@ -37,10 +37,8 @@
     "port": 443,
     "timeout": 2000
   },
-  "services": [
-    { "name": "Router", "url": "http://192.168.1.1" },
-    { "url": "https://example.com" }
-  ],
+  "night": { "from": "23:30", "to": "06:30" },
+  "alerts": { "batteryPct": 20, "diskFreePct": 8, "unreachableMin": 10, "climateOnHours": 12 },
   "house": {
     "host": "127.0.0.1",
     "port": 5253,
@@ -82,6 +80,12 @@
       },
       { "id": "evening", "name": "Evening", "actions": [{ "device": "living-lamp", "set": { "ambiance": "warm" } }] }
     ],
+    "remote": { "url": "", "token": "" },
+    "freebox": { "host": "mafreebox.freebox.fr", "appToken": "", "people": [
+      { "id": "alex", "name": "Alex", "devices": ["00:00:5E:00:53:A1"] }
+    ] },
+    "tahoma": { "host": "", "pin": "", "token": "" },
+    "mqtt": { "url": "", "username": "", "password": "", "base": "zigbee2mqtt" },
     "govee": { "cloudFallback": false, "apiKey": "" },
     "cozytouch": { "username": "", "password": "" },
     "lgThinq": { "token": "", "country": "FR", "region": "eic" }

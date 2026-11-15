@@ -6,8 +6,11 @@
    A command is shown at once and taken back if the device refuses it.
    When the service has a floor plan, it is drawn above the tiles: the same devices,
    shown where they are (plan.js, plan3d.js). The tiles stay the main control, and the
-   whole tab fits the screen: the plan keeps its half, the tiles tighten when many. */
+   whole tab fits the screen like the others (fit.js): the plan keeps its half, the tiles
+   tighten when many, then go to a second page of tiles rather than scroll. */
 import { $, state, esc, load, cssColor } from "./core.js";
+import { fitBox, fitRows, queueFit } from "./fit.js";
+import { openPanel, drawPanel, closePanel, panelEl, panelIs } from "./panel.js";
 import { moduleFor, placedDevices, planSvg } from "./plan.js";
 import { solarPosition } from "./sun.js";
 import { t, dec, nb, fmtDate, fmtTime } from "./i18n.js";
@@ -87,21 +90,51 @@ const heats = (d) => d.type === "climate" || d.type === "heater";
 // What makes a tile and a marker stand out: a lamp that is on, a blind that is up, a
 // cycle that runs, a boost. A water heater is always on, which says nothing.
 const active = (d) => d.type === "cover" ? d.state.position > 0 : d.type === "washer" ? d.state.run === "running" || d.state.run === "paused"
-  : d.type === "water" ? !!d.state.boost : !!d.state.on;
+  : d.type === "water" ? !!d.state.boost : d.type === "contact" ? !!d.state.open : d.type === "leak" ? !!d.state.leak : !!d.state.on;
 // "1 h 05", "40 min"
 const duration = (min) => min == null ? "" : min >= 60 ? t("house.hours", Math.floor(min / 60), String(min % 60).padStart(2, "0")) : t("house.minutes", min);
 // A washer that has finished and waits to be emptied: what the overview and the briefing tell.
 export const cyclesDone = (list) => (list || []).flatMap((room) => room.devices.filter((d) => d.type === "washer" && d.state.reachable && d.state.run === "done").map((d) => ({ name: d.name, room: room.name })));
 
+/* The home room by room, for the Overview: per room, what is on, as short parts.
+   [{ room, parts: [{ icon, on, text }] }], a room with nothing reachable left out. */
+export function roomLines(list) {
+  return (list || []).map((room) => {
+    const live = room.devices.filter((d) => d.state && d.state.reachable), parts = [];
+    const lights = live.filter((d) => d.type === "light"), lit = lights.filter((d) => d.state.on).length;
+    if (lights.length) parts.push({ icon: "bulb", on: lit > 0, kind: "lights", lit, of: lights.length });
+    for (const d of live.filter((x) => x.type === "climate" || x.type === "heater")) {
+      parts.push({ icon: d.type === "heater" ? "flame" : "snowflake", on: !!d.state.on, kind: "climate", mode: d.state.on ? d.state.mode || null : null, setpoint: d.state.on ? d.state.setpoint ?? null : null });
+    }
+    for (const d of live.filter((x) => x.type === "tv")) parts.push({ icon: "tv", on: !!d.state.on, kind: "tv", app: d.state.on ? d.state.appName || null : null });
+    const covers = live.filter((d) => d.type === "cover");
+    if (covers.length) parts.push({ icon: "blind", on: covers.some((d) => d.state.position > 0), kind: "covers", open: covers.filter((d) => d.state.position > 0).length, of: covers.length });
+    const temp = room.temperature ?? null;
+    return { room: room.name, temperature: temp, parts };
+  }).filter((r) => r.parts.length || r.temperature != null);
+}
+
+function drawHome() {
+  const lines = roomLines(rooms), people = (state.home && state.home.presence) || [];
+  const words = (p) => p.kind === "lights" ? (p.lit ? t("home.lit", p.lit, p.of) : t("home.dark"))
+    : p.kind === "climate" ? (p.on ? `${p.mode ? t(`opt.mode.${p.mode}`) : t("house.running")}${p.setpoint != null ? ` ${degrees(p.setpoint)}` : ""}` : t("house.isOff"))
+      : p.kind === "tv" ? (p.on ? esc(p.app || t("house.isOn")) : t("house.isOff"))
+        : t("home.covers", p.open, p.of);
+  $("homeCard").hidden = !lines.length && !people.length;
+  $("homeMeta").innerHTML = people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join("");
+  $("homeList").innerHTML = lines.map((r) => `<div class="roomLine"><span class="rn">${esc(r.room)}${r.temperature != null ? `<small class="num">${degrees(r.temperature)}</small>` : ""}</span>
+    <span class="rp">${r.parts.map((p) => `<span class="bullet${p.on ? " on" : ""}">${icon(p.kind === "climate" && p.on ? MODE_ICON[p.mode] || p.icon : p.icon)}<span>${words(p)}</span></span>`).join("")}</span></div>`).join("");
+  $("homeScenes").hidden = !(scenes && scenes.length);
+  $("homeScenes").innerHTML = sceneBar();
+}
+
+let modules = null;                    // the integrations of the service and their state, for the Modules panel
 export async function refreshHouse() {
   wire();
-  const r = await load(`${API}/rooms`);
+  const [r, home] = await Promise.all([load(`${API}/rooms`), load(`${API}/home`)]);
   // an answer older than a command still on its way would bring the old state back
   if (r && !inFlight) { rooms = r; state.house = { rooms }; }
-  // a finished cycle is told on the overview, with the warnings, until the machine is emptied
-  const done = cyclesDone(rooms);
-  $("houseAlerts").hidden = !done.length;
-  $("houseAlerts").innerHTML = done.map((c) => `<span class="pill note">${icon("washer")}${t("house.cycleDone", esc(c.name))}</span>`).join("");
+  if (home) state.home = home;
   if (r && !scenes) [scenes, ambiances] = await Promise.all([load(`${API}/scenes`), load(`${API}/ambiances`)]).then((l) => l.map((x) => x || []));
   // asked once: the service answers 404 when it has no plan, and the card stays hidden
   if (r && plan === undefined) plan = (await load(`${API}/plan`)) || null;
@@ -193,6 +226,10 @@ function deviceIcon(d) {
   if (d.type === "water") return icon("shower");
   if (d.type === "tv") return icon("tv");
   if (d.type === "washer") return icon("washer");
+  if (d.type === "meter") return icon("bolt");
+  if (d.type === "plug") return icon("plug");
+  if (d.type === "leak") return icon("drop");
+  if (d.type === "contact") return icon("door");
   return icon(d.type === "heater" ? "flame" : "thermo");
 }
 // A scene has a name and nothing else: its icon is guessed from it.
@@ -209,6 +246,11 @@ function tileText(d) {
   if (d.type === "water") return [s.showersLeft != null ? String(s.showersLeft) : s.temperature != null ? degrees(s.temperature) : "", [s.away ? t("house.away") : s.mode ? t(`opt.mode.${s.mode}`) : "", s.boost ? t("cap.boost") : "", s.showersLeft != null ? t("house.showersLeft", s.showersLeft) : ""].filter(Boolean).join(" · ")];
   if (d.type === "tv") return ["", s.on ? s.appName || t("house.isOn") : t("house.isOff")];
   if (d.type === "washer") return [s.run === "running" || s.run === "paused" ? duration(s.remainingMin) : "", washerWords(s)];
+  if (d.type === "meter") return [s.power != null ? `${nb(Math.round(s.power))} W` : "", s.tariff ? esc(s.tariff) : ""];
+  if (d.type === "plug") return [s.power != null ? `${nb(Math.round(s.power))} W` : "", s.run === "running" ? t("washer.run.running") : s.run === "done" ? t("washer.run.done") : s.on ? t("house.isOn") : t("house.isOff")];
+  if (d.type === "contact") return ["", s.open ? t("house.open") : t("house.closed")];
+  if (d.type === "leak") return ["", s.leak ? t("house.leak") : t("house.dry")];
+  if (d.type === "heater" && s.setpoint == null) return ["", s.mode ? t(`opt.mode.${s.mode}`) : s.on ? t("house.running") : t("house.stopped")];
   return [degrees(s.setpoint), s.on ? (s.mode ? t(`opt.mode.${s.mode}`) : t("house.running")) : t("house.stopped")];
 }
 
@@ -223,16 +265,17 @@ function tileHtml(d) {
   const s = d.state, id = esc(d.id), room = esc(roomOf(d).name);
   const error = errors.get(d.id);
   if (!s.reachable) {
-    // a lamp silent on the LAN gets the two usual reasons, anything else its technical message as a tooltip
-    const why = s.error === "lanSilent" ? t("house.lanSilent") : t("unreachable");
+    // a lamp silent on the LAN says so in a word, its panel explains and tells what to do
+    const why = s.error === "lanSilent" ? t("house.lanSilentShort") : t("unreachable");
     return `<div class="tile gone" data-device="${id}" data-room="${esc(d.room)}" title="${esc(s.error || "")}"><span class="tileIcon">${deviceIcon(d)}</span>
-      <span class="tileText"><span class="tileName">${esc(d.name)}</span><span class="tileState">${room} · ${why}</span></span></div>`;
+      <span class="tileText"><span class="tileName">${esc(d.name)}</span><span class="tileState">${room} · ${why}</span></span>
+      <button type="button" class="tileMore" data-more="${id}" aria-label="${t("house.details", esc(d.name))}">${icon("dots")}</button></div>`;
   }
   const fill = d.type === "light" ? lampFill(s) : null;
   const [main, words] = tileText(d);
   const canToggle = !!d.capabilities.on;
   const on = active(d);
-  const cls = ["tile", d.type, on ? "on" : canToggle || ["cover", "washer", "water"].includes(d.type) ? "off" : "", fill ? "lit" : "", error ? "failed" : ""].filter(Boolean).join(" ");
+  const cls = ["tile", d.type, on ? "on" : canToggle || ["cover", "washer", "water", "contact", "leak"].includes(d.type) ? "off" : "", fill ? "lit" : "", error ? "failed" : ""].filter(Boolean).join(" ");
   const mode = d.type === "climate" && s.on && s.mode ? ` data-mode="${esc(s.mode)}"` : "";
   return `<div class="${cls}" data-tile="${id}" data-device="${id}" data-room="${esc(d.room)}"${mode}${canToggle ? ` role="button" tabindex="0" aria-pressed="${!!s.on}"` : ""}${fill ? ` style="--lamp:${fill.color}"` : ""}>
     <span class="tileIcon">${deviceIcon(d)}</span>
@@ -282,9 +325,65 @@ function rgbToHsv(r, g, b) {
 /* Every control stays live on a device that is off: a mode, a target or a fan speed
    can be set before turning it on. Nothing is greyed here, a refusal of the device
    comes back as an error. */
-function detailHtml(d) {
+const block = (html, cls = "") => `<div class="block${cls ? " " + cls : ""}" data-prio="1">${html}</div>`;
+// The effects of a lamp: the scenes of its maker, those made in its app, its music modes.
+const EFFECTS = ["scene", "diy", "music"];
+const hasEffects = (d) => EFFECTS.some((k) => d.capabilities[k]);
+const hasProgram = (d) => !!(d.state.schedule && d.state.schedule.days);
+
+// What the device reports and nobody sets, as [label, value]. The probe of an air
+// conditioner is named as such: it reads several degrees above the room.
+function factsOf(d) {
   const s = d.state, caps = d.capabilities;
-  const error = errors.get(d.id);
+  return [
+    d.type === "water" && s.hotWater != null ? [t("fact.hotWater"), `${Math.round(s.hotWater)} %`] : null,
+    d.type === "water" && s.temperature != null ? [t("fact.water"), `${dec(s.temperature, 0)}°`] : null,
+    s.energyKwh != null ? [t("fact.energyTotal"), `${nb(Math.round(s.energyKwh))} kWh`] : null,
+    d.type === "washer" && washerWords(s) ? [t("fact.cycle"), washerWords(s)] : null,
+    d.type === "washer" && s.remainingMin != null ? [t("fact.remaining"), duration(s.remainingMin)] : null,
+    d.type === "washer" && s.endsAt ? [t("fact.endsAt"), fmtTime(new Date(s.endsAt))] : null,
+    d.type === "washer" && s.run !== "off" && !caps.start ? [t("fact.remoteStart"), t("fact.disabled")] : null,
+    d.type === "tv" && s.appName ? [t("field.app"), esc(s.appName)] : null,
+    s.probeTemp != null ? [t("fact.probe"), `${dec(s.probeTemp, 1)}°`] : null,
+    d.type === "heater" && s.temperature != null ? [t("fact.temperature"), `${dec(s.temperature, 1)}°`] : null,
+    s.humidity != null ? [t("fact.humidity"), `${Math.round(s.humidity)} %`] : null,
+    s.power != null ? [t("fact.power"), `${nb(Math.round(s.power))} W`] : null,
+    s.outdoorTemp != null ? [t("fact.outdoor"), `${dec(s.outdoorTemp, 1)}°`] : null,
+    s.energy ? [t("fact.energyToday"), `${dec(s.energy.today, 1)} kWh`] : null,
+    s.energy ? [t("fact.energyWeek"), `${dec(s.energy.week, 1)} kWh`] : null,
+    s.battery != null ? [t("fact.battery"), `${Math.round(s.battery)} %`] : null,
+    s.timer && s.timer.enabled ? [t("fact.timer"), t("house.programOn")] : null,
+    s.schedule && s.schedule.enabled && !s.schedule.days ? [t("house.program"), t("house.programOn")] : null,
+    [t("fact.link"), s.via === "cloud" ? t("house.viaCloud") : t(`driver.${DRIVER_LINK[d.driver] || "local"}`)],
+  ].filter(Boolean);
+}
+// How a driver reaches its device: said in the Info tab, and "account required" is never hidden.
+const DRIVER_LINK = { cozytouch: "cloud", "lg-thinq": "cloud", "govee-cloud": "cloud", demo: "demo" };
+
+/* The tabs of a device: its settings, its weekly program when it holds one, and what it
+   reports. A device that does not answer has one tab, which says why and what to do. */
+function detailTabs(d) {
+  if (!d.state.reachable) return [{ id: "help", label: t("detail.help") }];
+  return [
+    { id: "settings", label: t("detail.settings") },
+    hasEffects(d) ? { id: "scenes", label: t("detail.scenes") } : null,
+    hasProgram(d) ? { id: "program", label: t("detail.program") } : null,
+    { id: "info", label: t("detail.info") },
+  ].filter(Boolean);
+}
+
+function helpBlocks(d) {
+  const lan = d.state.error === "lanSilent";
+  return block(`<p class="helpText">${lan ? t("help.lanSilent") : t("help.unreachable")}</p>`)
+    + (lan ? block(`<ol class="helpText helpSteps">${t("help.lanSteps").map((x) => `<li>${x}</li>`).join("")}</ol>`) : "")
+    + (!lan && d.state.error ? block(`<div class="detailError">${esc(d.state.error)}</div>`) : "");
+}
+
+/* Every control stays live on a device that is off: a mode, a target or a fan speed
+   can be set before turning it on. Nothing is greyed here, a refusal of the device
+   comes back as an error. One block per control: the panel fits them like a tab. */
+function settingsBlocks(d) {
+  const s = d.state, caps = d.capabilities;
   const out = [];
   if (caps.on) out.push(switchHtml(d.type === "light" ? (s.on ? t("house.lightOn") : t("house.lightOff")) : s.on ? t("house.isOn") : t("house.isOff"), s.on, "data-power"));
   if (caps.setpoint) {
@@ -292,11 +391,16 @@ function detailHtml(d) {
       <span class="v num">${degrees(s.setpoint)}</span>
       <button type="button" data-step="1" aria-label="${t("house.warmer")}">+</button></div>`);
   }
-  for (const cap of ["mode", "fan", "swing"]) {
+  // a shutter: its moves as buttons, the stop in the middle
+  const moves = ["open", "stop", "my", "close"].filter((a) => caps[a]);
+  if (moves.length) out.push(`<div class="actionRow">${moves.map((a) => `<button type="button" class="bigAction" data-action="${a}">${t(`cover.${a}`)}</button>`).join("")}</div>`);
+  for (const cap of ["mode", "fan", "swing", "demand"]) {
     if (!caps[cap]) continue;
     out.push(field(t("field." + cap), `<div class="segmented">${caps[cap].options.map((v) =>
       `<button type="button" class="${v === s[cap] ? "on" : ""}" data-set="${cap}" data-value="${esc(v)}">${t(`opt.${cap}.${v}`)}</button>`).join("")}</div>`));
   }
+  // the ceiling only means something while it is set by hand
+  if (caps.demandMax && s.demand === "manual") out.push(slider(d, "demandMax", t("slider.demandMax"), `${s.demandMax ?? "–"} %`));
   // what a television offers has the names it gives: its inputs, its applications
   for (const cap of ["source", "app"]) {
     if (!caps[cap]) continue;
@@ -311,8 +415,8 @@ function detailHtml(d) {
     const names = t("house.colors");
     out.push(field(t("field.color"), `<div class="swatchRow">${QUICK.map((v, i) =>
       `<button type="button" class="swatch${s.colorRgb === v ? " on" : ""}" style="background:${hex(v)}" data-color="${v}" title="${names[i]}" aria-label="${names[i]}"></button>`).join("")}
-      <button type="button" class="swatch more${pickerOpen ? " on" : ""}" data-picker title="${t("moreColors")}" aria-label="${t("moreColors")}"></button></div>
-      ${pickerOpen ? `<div class="picker"><div class="svBox"><div class="svDot"></div></div><input type="range" class="hueSlider" min="0" max="359" aria-label="${t("moreColors")}"></div>` : ""}`));
+      <button type="button" class="swatch more${pickerOpen ? " on" : ""}" data-picker title="${t("moreColors")}" aria-label="${t("moreColors")}"></button></div>`));
+    if (pickerOpen) out.push(`<div class="picker"><div class="svBox"><div class="svDot"></div></div><input type="range" class="hueSlider" min="0" max="359" aria-label="${t("moreColors")}"></div>`);
   }
   if (d.type === "light" && ambiances.length) {
     out.push(field(t("house.ambiance"), `<div class="chips">${ambiances.map((a) => `<button type="button" class="chip" data-ambiance="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div>`));
@@ -323,32 +427,27 @@ function detailHtml(d) {
   for (const [cap, c] of Object.entries(caps)) {
     if (c.type === "boolean" && cap !== "on") out.push(switchHtml(t("cap." + cap), s[cap], `data-toggle="${cap}"`));
   }
-  if (s.schedule && s.schedule.days) out.push(programHtml(d));
-  // What the device reports and nobody sets. The probe of an air conditioner is named
-  // as such: it reads several degrees above the room.
-  const facts = [
-    d.type === "water" && s.hotWater != null ? t("house.hotWater", Math.round(s.hotWater)) : null,
-    d.type === "water" && s.temperature != null ? t("house.waterTemp", dec(s.temperature, 0)) : null,
-    s.energyKwh != null ? t("house.energyTotal", nb(Math.round(s.energyKwh))) : null,
-    d.type === "washer" ? washerWords(s) : null,
-    d.type === "washer" && s.remainingMin != null ? t("house.remaining", duration(s.remainingMin)) : null,
-    d.type === "washer" && s.endsAt ? t("house.endsAt", fmtTime(new Date(s.endsAt))) : null,
-    d.type === "washer" && s.run !== "off" && !caps.start ? t("house.noRemoteStart") : null,
-    d.type === "tv" && s.appName ? esc(s.appName) : null,
-    s.probeTemp != null ? t("house.probe", dec(s.probeTemp, 1)) : null,
-    d.type === "heater" && s.temperature != null ? `${dec(s.temperature, 1)}°` : null,
-    s.outdoorTemp != null ? t("house.outdoorUnit", dec(s.outdoorTemp, 1)) : null,
-    s.energy ? t("house.energyToday", dec(s.energy.today, 1)) : null,
-    s.energy ? t("house.energyWeek", dec(s.energy.week, 1)) : null,
-    s.timer && s.timer.enabled ? t("house.timerOn") : null,
-    s.schedule && s.schedule.enabled && !s.schedule.days ? t("house.scheduleOn") : null,
-    s.via === "cloud" ? t("house.viaCloud") : null,
-  ].filter(Boolean);
-  return `<div class="detailHead"><span class="detailName">${deviceIcon(d)}<span>${esc(d.name)}<small>${esc(roomOf(d).name)}</small></span></span>
-      <button type="button" class="detailClose" data-close aria-label="${t("house.close")}">${icon("close")}</button></div>
-    ${error ? `<div class="detailError">${esc(error)}</div>` : ""}
-    ${out.join("")}
-    ${facts.length ? `<div class="detailFacts">${facts.map((x) => `<span>${x}</span>`).join("")}</div>` : ""}`;
+  if (!out.length) out.push(`<p class="helpText">${t("detail.readOnly")}</p>`);
+  return out.map((x) => block(x)).join("");
+}
+
+// One list per kind of effect, each paged on its own: a lamp may have a hundred scenes.
+function effectBlocks(d) {
+  return EFFECTS.filter((k) => d.capabilities[k]).map((k) => block(`<div class="bHead"><h2>${t("scenes." + k)}</h2><span class="pgr" data-pager hidden></span></div>
+    <div class="rows effectList" data-rows data-min-rows="2">${d.capabilities[k].options.map((v) =>
+      `<button type="button" class="chip${d.state[k] === v ? " on" : ""}" data-set="${k}" data-value="${esc(v)}">${esc(v)}</button>`).join("")}</div>`)).join("");
+}
+
+function detailBody(d, tab) {
+  const error = errors.get(d.id) ? block(`<div class="detailError">${esc(errors.get(d.id))}</div>`) : "";
+  if (tab === "help") return helpBlocks(d);
+  if (tab === "program") return error + programBlocks(d);
+  if (tab === "scenes") return error + effectBlocks(d);
+  if (tab === "info") {
+    return block(`<div class="bHead"><h2>${t("detail.info")}</h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows detailFacts" data-rows data-min-rows="3">${factsOf(d).map(([k, v]) => `<div class="factRow"><span>${k}</span><span>${v}</span></div>`).join("")}</div>`, "factsBlock");
+  }
+  return error + settingsBlocks(d);
 }
 
 /* ---------- Absence ----------
@@ -395,10 +494,10 @@ export function nextEntry(list) {
   return null;
 }
 
-function programHtml(d) {
+function programBlocks(d) {
   const schedule = d.state.schedule, cap = d.capabilities.schedule, editing = draft && draft.id === d.id;
   const days = editing ? draft.days : schedule.days;
-  const block = (e, day, i) => {
+  const entryBlock = (e, day, i) => {
     const open = editing && draft.open && draft.open.day === day && draft.open.i === i;
     const body = `<b class="num">${esc(e.time || "?")}</b>${e.on ? `${icon(MODE_ICON[e.mode] || "snowflake")}<span class="num">${e.setpoint != null ? degrees(e.setpoint) : ""}</span>` : `<span>${t("house.stopped")}</span>`}`;
     const cls = `progBlock${e.enabled ? "" : " skipped"}${e.on ? "" : " off"}${open ? " open" : ""}`, mode = e.on && e.mode ? ` data-mode="${esc(e.mode)}"` : "";
@@ -409,18 +508,20 @@ function programHtml(d) {
     const tools = !editing ? "" : `<span class="progTools">
         ${cap && list.length < cap.perDay ? `<button type="button" data-prog="add" data-day="${day}" aria-label="${t("house.programAdd", dayName(i, "long"))}">${icon("plus")}</button>` : ""}
         ${list.length ? `<button type="button" data-prog="copy" data-day="${day}" aria-label="${t("house.programCopyTo", dayName(i, "long"))}">${icon("copy")}</button>` : ""}</span>`;
-    return `<div class="progDay"><span class="progName">${dayName(i)}</span><div class="progBlocks">${list.map((e, n) => block(e, day, n)).join("")}</div>${tools}</div>`;
+    return `<div class="progDay"><span class="progName">${dayName(i)}</span><div class="progBlocks">${list.map((e, n) => entryBlock(e, day, n)).join("")}</div>${tools}</div>`;
   }).join("");
   const title = `${t("house.program")}${schedule.name ? ` · ${esc(schedule.name)}` : ""}`;
   const head = cap ? switchHtml(title, schedule.enabled, 'data-prog="toggle"') : `<div class="fieldLabel">${title} · ${schedule.enabled ? t("house.programOn") : t("house.programOff")}</div>`;
-  let foot = "";
-  if (editing) {
-    foot = `${draft.open ? entryEditor(d) : draft.copy ? copyEditor() : ""}
-      ${draft.error ? `<div class="detailError">${esc(draft.error)}</div>` : ""}
-      <div class="progActions"><button type="button" class="chip" data-prog="cancel">${t("confirm.cancel")}</button>
-        <button type="button" class="chip strong" data-prog="save">${t("house.programSave")}</button></div>`;
-  } else if (cap) foot = `<div class="progActions"><button type="button" class="chip" data-prog="edit">${t("house.programEdit")}</button></div>`;
-  return `<div class="field">${head}<div class="program${schedule.enabled ? "" : " idle"}">${rows}</div>${foot}</div>`;
+  // the week is a list: on a short screen its days go to a second page rather than under the fold
+  const week = `<div class="tilesHead"><span class="pgr" data-pager hidden></span></div><div class="rows program${schedule.enabled ? "" : " idle"}" data-rows data-min-rows="4">${rows}</div>`;
+  const actions = editing
+    ? `<div class="progActions"><button type="button" class="chip" data-prog="cancel">${t("confirm.cancel")}</button>
+        <button type="button" class="chip strong" data-prog="save">${t("house.programSave")}</button></div>`
+    : cap ? `<div class="progActions"><button type="button" class="chip" data-prog="edit">${t("house.programEdit")}</button></div>` : "";
+  return block(head) + block(week)
+    + (editing && draft.open ? block(entryEditor(d)) : editing && draft.copy ? block(copyEditor()) : "")
+    + (editing && draft.error ? block(`<div class="detailError">${esc(draft.error)}</div>`) : "")
+    + (actions ? block(actions) : "");
 }
 
 // The entry being edited: when, on or off, and for "on" the mode, the target and the fan.
@@ -638,50 +739,75 @@ function drawPlan() {
 }
 
 /* ---------- Fitting the screen ----------
-   On a screen large enough the tab never scrolls. Upright, the plan takes half of the
-   height and the tiles the rest; lying down, they sit side by side. When the tiles are
-   too many for their share they tighten (tileLayout), the plan keeps its own. Sizes are
-   taken with getBoundingClientRect, the only ones that include the zoom of the page. */
-const SHIFT_ROOM = 6;   // the anti burn-in shift of the page (see main.js)
-function fitHouse() {
-  const pane = $("tabHouse"), grid = $("tileGrid"), card = $("planCard");
+   The tab is a box like the others (fit.js): the plan, the bar of the scenes, the tiles.
+   Upright, the plan asks for half of the height and takes what the tiles leave; lying
+   down, it has the left column. The tiles pick their look from the room they are given
+   (tileLayout): small cards, rows, tight rows. When even tight rows do not fit, the grid
+   keeps whole rows and the others wait on its next page. */
+function sizeHouse() {
+  const pane = $("tabHouse");
   if (pane.hidden) return;
-  const count = grid.children.length;
-  const fitted = !!plan && innerWidth >= 720 && innerHeight >= 620;
-  const wide = fitted && matchMedia("(orientation: landscape) and (min-width: 1000px)").matches;
-  pane.classList.toggle("fitted", fitted);
-  pane.classList.toggle("wide", wide);
-  grid.className = "tiles";
-  for (const el of [pane, card, grid]) el.style.height = "";
-  grid.style.gridTemplateColumns = grid.style.gridAutoRows = "";
-  if (!fitted) return;
-  const wrap = document.querySelector(".wrap"), zoom = Number(wrap.style.zoom) || 1;
-  const top = pane.getBoundingClientRect().top + scrollY;
-  const height = Math.floor((innerHeight - SHIFT_ROOM - top) / zoom - parseFloat(getComputedStyle(wrap).paddingBottom));
-  pane.style.height = `${height}px`;
-  const gap = parseFloat(getComputedStyle(pane).rowGap) || 0;
-  const scenes = $("sceneBar").hidden ? 0 : $("sceneBar").offsetHeight + gap;
-  // lying down the tiles have the whole height of their column, upright what the plan's half leaves
-  const share = wide ? height - scenes : height - Math.round(height * 0.5) - gap - scenes;
-  const layout = tileLayout(grid.clientWidth, share, count);
-  const used = count ? layout.rows * layout.row + (layout.rows - 1) * 10 : 0;
-  grid.classList.add(layout.look);
-  grid.classList.toggle("scroll", layout.scroll);
-  grid.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
-  grid.style.gridAutoRows = `${layout.row}px`;
-  grid.style.height = `${layout.scroll ? share : used}px`;
-  // what the tiles leave goes to the plan
-  if (!wide) card.style.height = `${height - scenes - (count ? Math.min(used, share) + gap : 0)}px`;
+  $("planCard").dataset.hn = Math.round(pane.clientHeight * 0.5);
+}
+function lookOfTiles() {
+  const grid = $("tileGrid"), blockEl = $("tilesBlock"), count = grid.children.length;
+  const head = grid.previousElementSibling.offsetHeight;
+  const layout = tileLayout(grid.clientWidth, blockEl.clientHeight - head, count);
+  grid.className = `tiles ${layout.look}`;
+  // when even the tightest rows do not fit, the CSS grid and the pager of the list take over
+  grid.style.gridTemplateColumns = layout.scroll ? "" : `repeat(${layout.columns}, minmax(0, 1fr))`;
+  grid.style.gridAutoRows = layout.scroll ? "" : `${layout.row}px`;
+  fitRows(grid);
 }
 
-let detailEl = null;
-function openDetail(id) { detailId = id; pickerOpen = false; draft = null; awayDraft = null; render(); detailEl.querySelector("[data-close]").focus(); }
-function closeDetail() { detailId = null; draft = null; awayDraft = null; render(); }
+export function openDetail(id) {
+  const d = findDevice(id);
+  if (!d) return;
+  closePanel();      // a panel still open would forget this device when it closes
+  detailId = id; pickerOpen = false; draft = null; awayDraft = null;
+  openPanel({
+    kind: "device",
+    head: () => { const x = findDevice(detailId); return { icon: deviceIcon(x), title: x.name, sub: roomOf(x).name }; },
+    tabs: () => detailTabs(findDevice(detailId)),
+    body: (tab) => detailBody(findDevice(detailId), tab),
+    after: (body) => { if (pickerOpen && body.querySelector(".svBox")) wirePicker(body, findDevice(detailId)); },
+    onClose: () => { detailId = null; draft = null; awayDraft = null; },
+  });
+}
+const closeDetail = () => { if (panelIs("device")) closePanel(); };
 
-function render() {
-  drawPlan();
+/* ---------- Modules ----------
+   Every integration of the service and where it stands: active, ready with no hardware
+   yet, or off because it needs an account with its maker. */
+const MODULE_STATES = ["active", "ready", "disabled"];
+async function openModules() {
+  modules = (await load(`${API}/modules`)) || [];
+  openPanel({
+    kind: "modules",
+    head: () => ({ icon: icon("chip"), title: t("house.modules"), sub: t("modules.sub") }),
+    body: () => block(`<div class="bHead"><h2>${t("modules.local")}</h2><span class="pgr" data-pager hidden></span></div>
+      <div class="rows" data-rows data-min-rows="3">${modules.map((m) => {
+        const st = MODULE_STATES.includes(m.state) ? m.state : "disabled";
+        return `<div class="modRow ${st}"><span class="dot"></span><div class="tx"><div class="nm">${esc(t(`module.${m.id}`))}</div>
+          <div class="st">${t(`modules.${st}`)}${m.devices ? ` · ${t("modules.devices", m.devices)}` : ""}</div></div>
+          ${m.account ? `<span class="tag">${t("modules.account")}</span>` : ""}</div>`;
+      }).join("")}</div>`, "modBlock"),
+  });
+}
+
+function drawBar() {
+  const people = (state.home && state.home.presence) || [];
+  $("presence").hidden = !people.length;
+  $("presence").innerHTML = people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join("");
   $("sceneBar").hidden = !(scenes && scenes.length);
   $("sceneBar").innerHTML = sceneBar();
+  $("houseBar").hidden = !rooms.length;
+}
+
+function render() {
+  drawHome();
+  drawPlan();
+  drawBar();
   // with a room framed on the plan, its tiles stand out from the others
   const framed = plan && plan.rooms.some((r) => r.id === planShown) ? planShown : null;
   $("tileGrid").innerHTML = rooms.flatMap((r) => r.devices).map(tileHtml).join("");
@@ -689,19 +815,17 @@ function render() {
     el.classList.toggle("away", !!framed && el.dataset.room !== framed);
     el.classList.toggle("hl", el.dataset.device === pointed);
   }
+  $("tilesBlock").hidden = !rooms.length;
   $("houseEmpty").hidden = rooms.length > 0;
-  fitHouse();
-  const d = detailId && findDevice(detailId);
-  detailEl.hidden = !d || !d.state.reachable;
-  if (detailEl.hidden) { detailId = null; return; }
-  // the page is zoomed to fit the screen (fitToScreen): the panel, outside it, follows
-  detailEl.style.zoom = document.querySelector(".wrap").style.zoom || 1;
-  const panel = detailEl.querySelector(".detailPanel");
-  const scroll = panel.scrollTop;
-  panel.innerHTML = detailHtml(d);
-  panel.setAttribute("aria-label", d.name);
-  panel.scrollTop = scroll;
-  if (pickerOpen) wirePicker(panel, d);
+  sizeHouse();
+  if (!$("tabHouse").hidden) fitBox($("tabHouse"));
+  if (panelIs("device")) { if (findDevice(detailId)) drawPanel(); else closePanel(); }
+}
+
+export function houseTabShown() { render(); }
+// For the captures (scripts/): the model seen from an angle given in degrees, or framed on a room.
+export function lookAtPlan(azimuth, elevation, zoom = 1, subject = "plan") {
+  if (planView) planView.look({ subject, azimuth: azimuth * Math.PI / 180, elevation: elevation * Math.PI / 180, zoom });
 }
 
 // Custom confirmation: window.confirm() opens an off-theme native popup.
@@ -729,12 +853,7 @@ let wired = false;
 function wire() {
   if (wired) return;
   wired = true;
-  // On <body>, outside .wrap: the anti burn-in shift is a transform, which would break position:fixed.
-  detailEl = document.createElement("div");
-  detailEl.className = "detail";
-  detailEl.hidden = true;
-  detailEl.innerHTML = `<div class="detailBackdrop" data-close></div><aside class="detailPanel" role="dialog"></aside>`;
-  document.body.appendChild(detailEl);
+  const detailEl = panelEl();
 
   let pressTimer = null, longPressed = false;
   const tab = $("tabHouse");
@@ -745,9 +864,17 @@ function wire() {
     pressTimer = setTimeout(() => { longPressed = true; openDetail(tile.dataset.tile); }, LONG_PRESS_MS);
   });
   for (const type of ["pointerup", "pointerleave", "pointercancel"]) tab.addEventListener(type, () => clearTimeout(pressTimer), true);
+  // the scenes of the Overview: one tap runs them, without leaving for the House tab
+  $("homeCard").addEventListener("click", (e) => {
+    const scene = e.target.closest("[data-scene]");
+    if (!scene) return;
+    e.stopPropagation();
+    runScene(scene.dataset.scene);
+  });
   tab.addEventListener("click", (e) => {
     const scene = e.target.closest("[data-scene]");
     if (scene) return runScene(scene.dataset.scene);
+    if (e.target.closest("#modulesBtn")) return openModules();
     const planBtn = e.target.closest("#planViews [data-view], #planRooms [data-room], .planFlat [data-room]");
     if (planBtn) return showPlan(planBtn.dataset.view || planBtn.dataset.room);
     if (e.target.closest("#planRecenter")) return planView && planView.recenter();
@@ -771,27 +898,29 @@ function wire() {
   });
   // crossing the width under which the model gives way to the flat view
   matchMedia(NARROW).addEventListener("change", render);
-  addEventListener("resize", fitHouse);
+  addEventListener("resize", sizeHouse);
+  tab.addEventListener("fit", lookOfTiles);
+  $("modulesBtn").dataset.panel = "modules";
 
   detailEl.addEventListener("click", (e) => {
-    const el = e.target.closest("button, [data-close]");
-    if (!el) return;
+    const el = e.target.closest("button");
+    if (!el || !panelIs("device")) return;
     const data = el.dataset;
     if ("prog" in data) return programAction(data);
-    if ("close" in data) return closeDetail();
     if ("power" in data) return togglePower(detailId);
     if ("step" in data) return step(detailId, Number(data.step));
     if ("set" in data) return command(detailId, { [data.set]: data.value });
     if ("toggle" in data) return command(detailId, { [data.toggle]: !findDevice(detailId).state[data.toggle] });
     if ("color" in data) return command(detailId, { colorRgb: Number(data.color) });
     if ("ambiance" in data) return command(detailId, { ambiance: data.ambiance });
-    if ("picker" in data) { pickerOpen = !pickerOpen; render(); }
+    if ("picker" in data) { pickerOpen = !pickerOpen; drawPanel(); }
     if ("action" in data) return command(detailId, { [data.action]: true });
     if ("awaySet" in data && awayDraft) { const away = awayPeriod(awayDraft); awayDraft = null; return command(detailId, { away }); }
     if ("awayEnd" in data) { awayDraft = null; return command(detailId, { away: null }); }
   });
   // sliders send on release, not while dragging
   detailEl.addEventListener("change", (e) => {
+    if (!panelIs("device")) return;
     if ("progTime" in e.target.dataset && e.target.value) return programAction({ prog: "time" }, e.target.value);
     if (e.target.dataset.away) {
       const s = findDevice(detailId).state;
@@ -800,5 +929,4 @@ function wire() {
     }
     if (e.target.dataset.range) command(detailId, { [e.target.dataset.range]: Number(e.target.value) });
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detailId) closeDetail(); });
 }

@@ -6,9 +6,9 @@
     "planPath": "plan.json",
     "rooms": [
       { "id": "living", "name": "Living room", "devices": [
-        { "id": "living-lamp", "name": "Ceiling light", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 60, "colorRgb": null, "colorTempK": 2700 } },
+        { "id": "living-lamp", "name": "Ceiling light", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 60, "colorRgb": null, "colorTempK": 2700, "scene": "Sunset" } },
         { "id": "living-floor-lamp", "name": "Floor lamp", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 40, "colorRgb": 16742972, "colorTempK": null } },
-        { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": true, "mode": "heat", "setpoint": 21, "fan": "auto", "probeTemp": 23.5,
+        { "id": "living-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": true, "mode": "heat", "setpoint": 21, "fan": "auto", "probeTemp": 23.5, "demand": "manual", "demandMax": 70, "energy": { "today": 2.4, "week": 19.8, "month": 41.2, "days": [{ "heat": 2.4, "cool": 0 }, { "heat": 3.1, "cool": 0 }, { "heat": 2.8, "cool": 0 }, { "heat": 3.6, "cool": 0 }, { "heat": 2.2, "cool": 0.3 }, { "heat": 3.0, "cool": 0 }, { "heat": 2.7, "cool": 0 }] },
           "schedule": { "enabled": true, "program": 1, "name": "Winter", "perDay": 6, "days": {
             "mon": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
             "tue": [{ "time": "06:30", "enabled": true, "on": true, "mode": "heat", "setpoint": 21, "fan": "auto" }, { "time": "08:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }, { "time": "18:00", "enabled": true, "on": true, "mode": "heat", "setpoint": 20.5, "fan": "quiet" }, { "time": "23:00", "enabled": true, "on": false, "mode": null, "setpoint": null, "fan": null }],
@@ -24,7 +24,7 @@
       { "id": "bedroom", "name": "Bedroom", "devices": [
         { "id": "bedroom-lamp", "name": "Bedside lamp", "type": "light", "driver": "demo", "state": { "on": false, "brightness": 30, "colorRgb": null, "colorTempK": 2200 } },
         { "id": "bedroom-shutter", "name": "Shutter", "type": "cover", "driver": "demo", "state": { "position": 0 } },
-        { "id": "bedroom-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": false, "mode": "cool", "setpoint": 25, "fan": "auto", "probeTemp": 22 } }
+        { "id": "bedroom-ac", "name": "Air conditioner", "type": "climate", "driver": "demo", "state": { "on": false, "mode": "cool", "setpoint": 25, "fan": "auto", "probeTemp": 22, "energy": { "today": 0.3, "week": 6.1, "month": 14.9, "days": [{ "heat": 0.3, "cool": 0 }, { "heat": 1.2, "cool": 0 }, { "heat": 0.9, "cool": 0 }, { "heat": 1.4, "cool": 0 }, { "heat": 0.6, "cool": 0 }, { "heat": 1.0, "cool": 0 }, { "heat": 0.7, "cool": 0 }] } } }
       ] },
       { "id": "office", "name": "Office", "devices": [
         { "id": "office-lamp", "name": "Desk lamp", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 80, "colorRgb": 9067775, "colorTempK": null } },
@@ -34,11 +34,19 @@
         { "id": "bathroom-towel-rail", "name": "Towel rail", "type": "heater", "driver": "demo", "state": { "on": false, "mode": "off", "setpoint": 21, "temperature": 19 } },
         { "id": "bathroom-washer", "name": "Washing machine", "type": "washer", "driver": "demo", "state": { "on": true, "run": "running", "phase": "rinsing", "remainingMin": 38, "totalMin": 95, "remoteStart": false } }
       ] },
+      { "id": "hall", "name": "Hall", "devices": [
+        { "id": "hall-lamp", "name": "Wall lamp", "type": "light", "driver": "demo", "state": { "reachable": false, "error": "lanSilent" } },
+        { "id": "hall-meter", "name": "Linky", "type": "meter", "driver": "demo", "state": { "power": 1840, "index": 15320, "tariff": "HP BLEU" } }
+      ] },
       { "id": "kitchen", "name": "Kitchen", "devices": [
         { "id": "kitchen-lamp", "name": "Ceiling light", "type": "light", "driver": "demo", "state": { "on": true, "brightness": 90, "colorRgb": null, "colorTempK": 4000 } },
         { "id": "kitchen-water", "name": "Hot water", "type": "water", "driver": "demo", "state": { "on": true, "mode": "eco", "showers": 3, "showersLeft": 2, "hotWater": 70, "temperature": 52, "boost": false, "away": null } }
       ] }
     ],
+    "home": {
+      "presence": [{ "id": "alex", "name": "Alex", "home": true }, { "id": "sam", "name": "Sam", "home": false }],
+      "network": { "state": "up", "media": "ftth", "rateDown": 1250000, "rateUp": 210000, "bandwidthDown": 1000000000, "bandwidthUp": 700000000, "lastOutage": { "at": 1793268000000, "minutes": 4 } }
+    },
     "ambiances": [
       { "id": "warm", "name": "Warm", "brightness": 45, "colorTempK": 2700 },
       { "id": "reading", "name": "Reading", "brightness": 90, "colorTempK": 4000 }

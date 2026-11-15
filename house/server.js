@@ -15,6 +15,9 @@ const cozytouch = require('./drivers/cozytouch');
 const lgWebos = require('./drivers/lg-webos');
 const lgThinq = require('./drivers/lg-thinq');
 const demo = require('./drivers/demo');
+const freebox = require('./drivers/freebox');
+const tahomaLocal = require('./drivers/tahoma-local');
+const mqttDriver = require('./drivers/mqtt');
 const plan = require('./plan');
 
 const PREFIX = '/api/v1';
@@ -28,8 +31,21 @@ function withEnv(cfg, env = process.env) {
   if (cfg.cozytouch || env.COZYTOUCH_USERNAME) {
     out.cozytouch = { ...cfg.cozytouch, username: env.COZYTOUCH_USERNAME || (cfg.cozytouch || {}).username, password: env.COZYTOUCH_PASSWORD || (cfg.cozytouch || {}).password };
   }
+  if (cfg.freebox || env.FREEBOX_APP_TOKEN) out.freebox = { ...cfg.freebox, appToken: env.FREEBOX_APP_TOKEN || (cfg.freebox || {}).appToken || '' };
+  if (cfg.tahoma || env.TAHOMA_TOKEN) out.tahoma = { ...cfg.tahoma, token: env.TAHOMA_TOKEN || (cfg.tahoma || {}).token || '' };
+  if (cfg.mqtt || env.MQTT_PASSWORD) out.mqtt = { ...cfg.mqtt, password: env.MQTT_PASSWORD || (cfg.mqtt || {}).password };
   return out;
 }
+
+/* Every integration, in the order the Modules panel lists them. `local` ones talk to
+ * the device on the home network and are on as soon as their settings are there; the
+ * others go through the cloud of their maker: they need an account, and stay off until
+ * the config asks for them in so many words. */
+const MODULES = [
+  { id: 'daikin', local: true }, { id: 'govee-lan', local: true }, { id: 'lg-webos', local: true },
+  { id: 'freebox', local: true }, { id: 'tahoma-local', local: true }, { id: 'mqtt', local: true },
+  { id: 'govee-cloud', local: false }, { id: 'cozytouch', local: false }, { id: 'lg-thinq', local: false },
+];
 
 // Only the drivers the config asks for: no socket opened, no cloud called for nothing.
 function buildDrivers(cfg) {
@@ -46,7 +62,33 @@ function buildDrivers(cfg) {
   if (used.has('lg-webos')) drivers['lg-webos'] = lgWebos.create();
   const t = cfg.lgThinq;
   if (t && t.token) drivers['lg-thinq'] = lgThinq.create({ token: t.token, country: t.country, region: t.region });
+  // Ready, and off until their hardware is there: a box with its token, a broker with its address.
+  const s = cfg.tahoma;
+  if (s && s.host && s.token) drivers['tahoma-local'] = tahomaLocal.create({ host: s.host, pin: s.pin, token: s.token });
+  const m = cfg.mqtt;
+  if (m && m.url) drivers.mqtt = mqttDriver.create({ url: m.url, username: m.username, password: m.password, base: m.base });
   return drivers;
+}
+
+// What reads the home itself, outside any room: the Freebox once paired, or the made-up home of the demo.
+function buildHome(cfg) {
+  const f = cfg.freebox;
+  if (f && f.appToken) return freebox.create({ host: f.host, appToken: f.appToken, people: f.people }).home;
+  if (cfg.home && (cfg.rooms || []).some((r) => (r.devices || []).some((d) => d.driver === 'demo'))) return async () => cfg.home;
+  return null;
+}
+
+/* The state of each module: "active" when it runs, "ready" for a local one that waits
+ * for its hardware, "disabled" for one that needs an account nobody gave. */
+function moduleList(cfg, drivers, home) {
+  const count = (id) => (cfg.rooms || []).reduce((n, r) => n + (r.devices || []).filter((d) => d.driver === id).length, 0);
+  const list = MODULES.map(({ id, local }) => {
+    const active = id === 'freebox' ? !!(home && cfg.freebox && cfg.freebox.appToken) : !!drivers[id];
+    const devices = id === 'freebox' ? ((cfg.freebox && cfg.freebox.people) || []).length : count(id);
+    return { id, local, account: !local, state: active ? 'active' : local ? 'ready' : 'disabled', devices: active ? devices : 0 };
+  });
+  if (drivers.demo) list.unshift({ id: 'demo', local: true, account: false, state: 'active', devices: count('demo') });
+  return list;
 }
 
 function readBody(req) {
@@ -71,7 +113,8 @@ function send(res, status, body) {
 function handler(rawCfg, { open, drivers, baseDir = path.join(__dirname, '..') } = {}) {
   const cfg = withEnv(rawCfg || {});
   const planFile = cfg.planPath ? path.resolve(baseDir, cfg.planPath) : null;
-  const service = createService(cfg, drivers || buildDrivers(cfg), { readPlan: planFile ? (ids) => plan.load(planFile, ids) : null });
+  const built = drivers || buildDrivers(cfg), home = buildHome(cfg);
+  const service = createService(cfg, built, { readPlan: planFile ? (ids) => plan.load(planFile, ids) : null, home, modules: moduleList(cfg, built, home) });
   return async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const denied = authorize({ token: cfg.token, open }, { authorization: req.headers.authorization, origin: req.headers.origin });
@@ -83,8 +126,38 @@ function handler(rawCfg, { open, drivers, baseDir = path.join(__dirname, '..') }
   };
 }
 
-// Inside Vigie's agent, which listens on 127.0.0.1 only.
-const mount = (cfg) => handler(cfg, { open: true });
+/* house.remote = { url, token }: the service runs elsewhere (a machine that stays on).
+ * The agent then starts none and relays every /api/v1 request there, with the token.
+ * The page keeps talking to its own origin and never holds the token. A page of another
+ * site is refused here, as the local service would: the relay adds the token itself. */
+function relay(remote, { fetchImpl = fetch } = {}) {
+  const root = String(remote.url).replace(/\/+$/, '').replace(new RegExp(`${PREFIX}$`), '');
+  return async (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && (!URL.canParse(origin) || !isLoopback(new URL(origin).hostname))) return send(res, 403, { error: 'origin refused' });
+    const url = new URL(req.url, 'http://localhost');
+    let body;
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      body = await new Promise((resolve) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => resolve(b)); });
+    }
+    let r, text;
+    try {
+      r = await fetchImpl(root + url.pathname + url.search, {
+        method: req.method, body: body || undefined, signal: AbortSignal.timeout(20000),
+        headers: { 'Content-Type': 'application/json', ...(remote.token ? { Authorization: `Bearer ${remote.token}` } : {}) },
+      });
+      text = await r.text();
+    } catch (e) {
+      // the one failure a relay has of its own: the other machine does not answer
+      return send(res, 502, { error: `house service unreachable at ${root}: ${e.name === 'TimeoutError' ? 'timeout' : e.message}` });
+    }
+    res.writeHead(r.status, { 'Content-Type': r.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' });
+    res.end(text);
+  };
+}
+
+// Inside Vigie's agent, which listens on 127.0.0.1 only: its own service, or the relay to another.
+const mount = (cfg, { baseDir } = {}) => cfg && cfg.remote && cfg.remote.url ? relay(cfg.remote) : handler(cfg, { open: true, baseDir });
 
 function start(cfg, log = console.log, baseDir) {
   const host = cfg.host || '127.0.0.1', port = cfg.port || DEFAULT_PORT;
@@ -127,4 +200,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { mount, start, handler, withEnv, buildDrivers, PREFIX };
+module.exports = { mount, start, handler, relay, withEnv, buildDrivers, buildHome, moduleList, MODULES, PREFIX };

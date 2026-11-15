@@ -37,18 +37,6 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { height: 100%; }
-body {
-  min-height: 100%;
-  font-family: var(--f-ui);
-  font-size: 15px;
-  color: var(--ink);
-  background-color: var(--abyss);
-  transition: background-color 4s ease;
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
-}
 .prose { font-family: var(--f-text); }
 .num, .v, .clock, td.r { font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-2); }
@@ -66,57 +54,7 @@ body {
 .moonPhase .moonDark { fill: color-mix(in oklab, var(--ink) 8%, transparent); stroke: color-mix(in oklab, var(--ink) 30%, transparent); stroke-width: 1.2; }
 .moonPhase .moonLit { fill: var(--ink); stroke: none; }
 
-/* ---- Page frame ---- */
-.wrap { position: relative; padding: 18px 26px 22px; display: flex; flex-direction: column; gap: 16px; transition: transform 1.5s ease; }
-/* anti burn-in shift on .wrap, not body: it would break position:fixed */
-.tabPane { display: flex; flex-direction: column; gap: 16px; }
-/* Overview groups (landscape) melt into the column here, back in reading order:
-   weather, air, electricity, system, storage and devices. */
-#tabOverview > .col { display: contents; }
-/* fitToScreen() (main.js) zooms the page to the screen, the system card takes the height left */
-#tabOverview { flex: 1; }
-#sysCard { flex: 1; display: flex; flex-direction: column; }
-#energyCard, #sysCard { order: 1; }
-#tabOverview .grid2 { order: 2; }
 
-.tabnav { display: flex; gap: 30px; padding: 2px 2px 4px; }
-.tabnav span { position: relative; font-size: 18px; font-weight: 500; color: var(--ink-3); padding: 6px 0; cursor: pointer; transition: color .15s; }
-.tabnav span:hover { color: var(--ink-2); }
-.tabnav span.on { color: var(--ink); }
-.tabnav span.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
-
-.card { position: relative; overflow: hidden; background: var(--hull); border-radius: var(--r-panel); padding: 20px 24px 22px; --ico-bg: var(--hull); }
-.card h2 { font-size: 17px; font-weight: 600; font-stretch: 87.5%; letter-spacing: .01em; color: var(--ink); margin-bottom: 16px; }
-.card h2.sub { margin-top: 22px; }
-.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.cardHead h2 { margin-bottom: 0; }
-.cardHead .meta { font-size: 14px; color: var(--ink-3); text-align: right; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-/* ---- Hero: the lookout's view, time over the sun's path ---- */
-.hero { padding: 10px 2px 4px; --ico-bg: var(--abyss); }
-.heroTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
-.clock { font-size: 150px; font-weight: 300; line-height: .86; letter-spacing: -.02em; }
-.clock .sec { font-size: .27em; letter-spacing: 0; color: var(--ink-3); margin-left: .25em; }
-.date { margin-top: 16px; font-size: 26px; color: var(--ink-2); }
-.date::first-letter { text-transform: uppercase; }
-.nameDay { margin-top: 4px; font-size: 17px; color: var(--ink-3); }
-.heroRight { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 52%; padding-top: 10px; }
-.hero { container-type: inline-size; }
-/* A narrow hero (landscape column, phone) puts the briefing and the pills under the clock. */
-@container (max-width: 900px) {
-  .heroTop { flex-direction: column; gap: 16px; }
-  /* stretched, so the briefing block has a width to stay within */
-  .heroRight { max-width: none; align-self: stretch; align-items: flex-start; padding-top: 0; }
-  #changeBadges, #machineBadges { justify-content: flex-start; }
-}
-/* on a phone the day length no longer fits between sunrise and sunset */
-@container (max-width: 460px) {
-  .hzLabel.center { display: none; }
-}
-#alertsList, #changeBadges, #machineBadges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-#alertsList { justify-content: flex-start; gap: 8px 16px; }
-#tempoBadge:empty, #changeBadges:empty, #alertsList:empty, #machineBadges:empty { display: none; }
 .warnGroup { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
 .warnGroup .area { font-size: 12px; color: var(--ink-3); }
 .pill .until { font-weight: 400; opacity: .8; }
@@ -127,54 +65,7 @@ body {
 .pill.orange { color: #ff9a4d; background: color-mix(in oklab, #ff9a4d 13%, transparent); }
 .pill.red    { color: var(--coral); background: color-mix(in oklab, var(--coral) 13%, transparent); }
 
-/* Sun path over 24 h: the curve is the real elevation, the horizon is graduated
-   hour by hour, the marker is the sun now. Labels sit in HTML so they keep their
-   size whatever the width. */
-.horizon { position: relative; margin-top: 20px; height: 136px; }
-.horizon > svg { position: absolute; inset: 0 0 auto 0; width: 100%; height: 104px; overflow: visible; }
-.horizon .hzLine { stroke: var(--rule); stroke-width: 1; }
-.horizon .hzTick { stroke: var(--ink-3); stroke-width: 1; opacity: .55; }
-.horizon .hzTick.major { opacity: .9; }
-.horizon .hzDay { fill: none; stroke: var(--amber); stroke-width: 2.4; }
-.horizon .hzFill { fill: url(#hzGrad); }
-.horizon .hzNight { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: .1 5; opacity: .75; }
-.horizon .hzNow { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 1 3; }
-.horizon .hzBand.golden { fill: url(#hzGold); }
-.horizon .hzBand.blue { fill: url(#hzBlue); }
-.hzSun { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 7px color-mix(in oklab, var(--amber) 18%, transparent); }
-.hzSun.night { background: var(--abyss); border: 1.5px solid var(--ink-3); box-shadow: none; }
-.hzHour { position: absolute; top: 91px; font-size: 12px; color: var(--ink-3); transform: translateX(-50%); }
-.hzHour.first { transform: none; }
-.hzHour.last { transform: translateX(-100%); }
-.hzLabel { position: absolute; top: 113px; font-size: 14px; color: var(--ink-2); white-space: nowrap; transform: translateX(-50%); }
-.hzLabel b { font-weight: 500; color: var(--ink); }
-.hzLabel.center { color: var(--ink-3); }
-.hzMoon { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-3); }
-/* masks the "now" line when the hour passes under the label */
-.hzMoon span { padding: 2px 6px; background: var(--abyss); transition: background-color 4s ease; }
-.hzMoon .ico { width: 30px; height: 30px; }
 
-/* Warnings and briefing, one block without a card. Empty it takes no room, with
-   warnings only it is a row of pills, and the rule comes with the text. Its width is
-   fixed (60ch of text and the rule) so the pills start at the same left edge with or
-   without a text. */
-.brief { width: 640px; max-width: 100%; --brief-col: var(--accent); }
-.brief[data-sev="yellow"] { --brief-col: var(--amber); }
-.brief[data-sev="orange"] { --brief-col: #ff9a4d; }
-.brief[data-sev="red"] { --brief-col: var(--coral); }
-.brief.hasText { margin: 2px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--brief-col); }
-.brief.hasText[data-sev="orange"], .brief.hasText[data-sev="red"] { padding: 12px 16px 12px 20px; border-radius: 0 12px 12px 0; background: color-mix(in oklab, var(--brief-col) 7%, transparent); }
-.briefHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
-.briefMeta { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
-.briefing { margin-top: 8px; font-size: 19px; line-height: 1.5; color: var(--ink); max-width: 60ch; text-wrap: pretty; }
-.briefing b { font-weight: 500; }
-/* now playing, aligned with the briefing text */
-.nowPlaying { align-self: stretch; display: flex; align-items: center; gap: 14px; max-width: 72ch; padding: 6px 0 0 22px; }
-.npBtn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: var(--hull); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
-.npBtn .ico { width: 18px; height: 18px; }
-.npText { min-width: 0; }
-.npTitle { font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.npSub { font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- Readouts: label, value, note, separated by hairlines ----
    The negative margin hides the first rule of each row behind the panel edge. */
@@ -203,30 +94,9 @@ body {
 .wxDesc { font-size: 24px; color: var(--ink); }
 .wxSub { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 15px; color: var(--ink-3); }
 .wxSub b { font-weight: 500; color: var(--ink-2); }
-#wxNormal { flex-basis: 100%; }
 .seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--abyss); flex: none; }
 .seg button { font: inherit; font-size: 14px; color: var(--ink-3); background: none; border: 0; padding: 6px 13px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
 .seg button.active { color: var(--ink); background: var(--hull-2); }
-#wxCard { container-type: inline-size; }
-/* six readouts stay on one line down to a narrow card */
-#wxReadouts { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-/* In a narrow card (landscape column) the city switcher stacks up on the right, on a
-   phone it goes under the temperature. */
-@container (max-width: 640px) {
-  .seg { flex-direction: column; }
-  .seg button { text-align: left; }
-}
-@container (max-width: 460px) {
-  .wxHead { flex-direction: column; }
-  .seg { flex-direction: row; }
-}
-.rainLine { display: flex; align-items: flex-end; gap: 16px; margin-top: 20px; }
-#rainLbl { font-size: 14px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-#rainBars { flex: 1; display: flex; gap: 5px; align-items: flex-end; height: 42px; }
-#rainBars .b { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; }
-#rainBars .bar { width: 100%; border-radius: 3px 3px 0 0; background: var(--sky); min-height: 2px; }
-#rainBars .h { font-size: 11px; color: var(--ink-3); }
-
 /* five days as ranges on one shared temperature scale */
 .forecast { margin-top: 18px; }
 .fcRow { display: grid; grid-template-columns: 64px 36px 54px 42px 1fr 42px; align-items: center; gap: 12px; padding: 5px 0; border-top: 1px solid var(--rule); font-size: 16px; }
@@ -277,7 +147,6 @@ table { width: 100%; border-collapse: collapse; font-size: 15px; }
 td { padding: 8px 0; border-top: 1px solid var(--rule); }
 td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left: 14px; }
 /* a long process name gets cut, never the figures */
-#procTable td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pHead td { font-size: 13px; color: var(--ink-3); border-top: 0; padding-top: 0; }
 .count { font-size: 12px; color: var(--ink-3); }
 
@@ -300,20 +169,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .tile .nm { font-size: 14px; color: var(--ink-3); }
 .tile .big { font-size: 34px; font-weight: 300; line-height: 1.1; margin-top: 4px; }
 .tile .lab { font-size: 14px; margin-top: 2px; }
-.mtCity { padding: 14px 16px; border-radius: 12px; cursor: pointer; background: var(--abyss); border: 1px solid transparent; transition: border-color .15s; --ico-bg: var(--abyss); }
-.mtCity.on { border-color: color-mix(in oklab, var(--accent) 55%, transparent); }
-.mtCity .nm { font-size: 14px; color: var(--ink-3); }
-.mtCity.on .nm { color: var(--ink); }
-.mtCity .hd { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.mtCity .hd .ico { width: 34px; height: 34px; }
-.mtCity .hd .tp { font-size: 34px; font-weight: 300; line-height: 1; }
-.mtCity .hd .mm { margin-left: auto; font-size: 14px; color: var(--ink-3); }
-.mtCity .desc { font-size: 14px; color: var(--ink-2); margin-top: 4px; }
-.mtCity .det, .tile .det { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
-.mtCity .det > div, .tile .det > div { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.mtCity .det .k, .tile .det .k { color: var(--ink-3); }
-.mtCity .det .v, .tile .det .v { color: var(--ink-2); }
-.triRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .pressure { display: grid; grid-template-columns: auto 1fr; gap: 32px; align-items: center; }
 .pressNow .v { font-size: 34px; font-weight: 300; line-height: 1.1; }
 .pressNow .s { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 14px; color: var(--ink-2); white-space: nowrap; }
@@ -324,23 +179,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .pressChart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
 .pressChart .now { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 1 3; }
 .pressChart .axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: var(--ink-3); }
-.mtHourRow { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; overflow-x: auto; }
-.mtH { text-align: center; padding: 8px 2px; border-radius: 10px; background: var(--abyss); --ico-bg: var(--abyss); }
-.mtH .hr { font-size: 12px; color: var(--ink-3); }
-.mtH .ic .ico { width: 26px; height: 26px; margin: 4px 0; }
-.mtH .tp { font-size: 16px; font-weight: 500; }
-.mtH .rain { height: 26px; display: flex; align-items: flex-end; justify-content: center; margin-top: 4px; }
-.mtH .rain i { display: block; width: 55%; border-radius: 2px 2px 0 0; background: var(--sky); }
-.mtH .pp { font-size: 11px; color: var(--ink-3); }
-.mtH .pp.on { color: var(--sky); font-weight: 600; }
-.mtH .vt { font-size: 11px; color: var(--ink-3); }
-.mtLeg { font-size: 13px; color: var(--ink-3); margin-top: 10px; text-align: center; }
-.mtLeg.left { text-align: left; }
-.mtLeg.gap { margin-top: 14px; }
-#mtWeek td { padding: 9px 0; }
-#mtWeek .today { font-weight: 600; }
-#mtWeek .ico { width: 24px; height: 24px; margin-right: 6px; }
-#mtPollens table td { padding: 7px 0; }
 .chgLine { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--rule); }
 .chgLine:first-child { border-top: 0; }
 .chgLine .ic .ico { width: 18px; height: 18px; vertical-align: -3px; }
@@ -350,8 +188,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .chgLine.info .t, .chgLine.info .ic { color: var(--amber); }
 .chgLine .d { font-size: 14px; color: var(--ink-2); }
 #mtAlerts .chgLine .t { white-space: normal; }
-#changeCard { box-shadow: inset 2px 0 0 var(--amber); }
-#changeCard.alert { box-shadow: inset 2px 0 0 var(--coral); }
 
 /* ---- Snow ---- */
 .snowTop { display: flex; align-items: center; gap: 18px; padding: 16px 18px; margin-bottom: 8px; border-radius: 12px; background: var(--abyss); --ico-bg: var(--abyss); }
@@ -378,11 +214,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 /* ---- Machine tab ---- */
 .machRow { display: flex; gap: 18px; padding: 10px 0; font-size: 15px; border-top: 1px solid var(--rule); }
 .winStatus { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; color: var(--amber); background: color-mix(in oklab, var(--amber) 10%, transparent); }
-.svcRow { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 15px; }
-.svcRow:first-child { border-top: 0; }
-.svcRow .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
-.svcRow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.svcRow .d { font-size: 14px; color: var(--ink-3); white-space: nowrap; }
 .machRow:first-child { border-top: 0; }
 .machRow .ml { flex: none; width: 140px; color: var(--ink-3); }
 .machRow .mv { flex: 1; color: var(--ink-2); line-height: 1.45; }
@@ -424,7 +255,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .dayStrip i { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; }
 
 /* ---- Tools tab ---- */
-#toolsList { display: flex; flex-direction: column; gap: 18px; }
 .tgHead { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .tgIcon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: 18px; background: var(--abyss); }
 .tgIcon .ico { width: 20px; height: 20px; color: var(--accent); }
@@ -463,9 +293,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 @keyframes scenePulse { 50% { opacity: .25; } }
 /* One grid for every room. A tile comes in three looks, chosen by the room left to the
    grid (tileLayout in house.js): "tall" as a small card, "flat" as a row, "dense" tighter. */
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); grid-auto-rows: 72px; gap: 10px; }
-.tiles:empty { display: none; }
-.tiles.scroll { overflow-y: auto; }
 .tiles .tile { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 0; padding: 0 8px 0 18px; border-radius: 14px; overflow: hidden; background: var(--hull); color: var(--ink); --ico-bg: transparent; --band: transparent; user-select: none; -webkit-user-select: none; touch-action: manipulation; transition: background .2s, color .2s, opacity .2s, box-shadow .15s; }
 .tiles .tile[role=button] { cursor: pointer; }
 /* the band says what kind of "on" it is: the color of the lamp, of the mode, of the accent */
@@ -524,9 +351,6 @@ td.r { text-align: right; color: var(--ink-2); white-space: nowrap; padding-left
 .tiles.dense .tileMain { font-size: 17px; }
 .tiles.dense .tileMore { width: 28px; height: 28px; }
 /* detail: a side panel on a wide screen, a sheet from the bottom on a phone (see the narrow rules) */
-.detail { position: fixed; inset: 0; z-index: 150; }
-.detailBackdrop { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
-.detailPanel { position: absolute; top: 0; right: 0; bottom: 0; width: 420px; max-width: 100%; display: flex; flex-direction: column; gap: 20px; padding: 22px 24px 28px; overflow-y: auto; background: var(--hull-2); box-shadow: -20px 0 60px rgba(0,0,0,.45); --ico-bg: var(--hull-2); }
 .detailHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .detailName { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 19px; font-weight: 600; }
 .detailName .ico { flex: none; width: 28px; height: 28px; }
@@ -588,7 +412,6 @@ button.progBlock:hover, .progBlock.open { box-shadow: 0 0 0 2px var(--accent); }
 .swatch.on { box-shadow: 0 0 0 2px var(--hull-2), 0 0 0 3.5px var(--accent); }
 .swatch.more { background: conic-gradient(red, #ff0, lime, cyan, blue, magenta, red); }
 .picker { margin-top: 12px; max-width: 300px; }
-.fuelGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 32px; }
 .fuelName { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 15px; font-weight: 600; }
 .fuelName .ico { width: 18px; height: 18px; color: var(--accent); }
 .fuelRow { display: grid; grid-template-columns: 78px 1fr; gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--rule); }
@@ -624,38 +447,6 @@ button.progBlock:hover, .progBlock.open { box-shadow: 0 0 0 2px var(--accent); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
-/* ---- Landscape screens: cards flow into columns instead of one long strip ----
-   CSS columns balance cards of different heights, which a fixed grid can't do. */
-@media (orientation: landscape) and (min-width: 1280px) {
-  .wrap { max-width: none; padding: 22px 30px 30px; }
-  .tabPane { display: block; column-count: 2; column-gap: 18px; }
-  .tabPane > * { break-inside: avoid; margin-bottom: 18px; }
-  .tabPane > #toolsList { display: block; break-inside: auto; margin-bottom: 0; }
-  #toolsList > .card { break-inside: avoid; margin-bottom: 18px; }
-  /* tiles need the whole width: the House tab stays one column */
-  #tabHouse { display: flex; column-count: auto; gap: 18px; }
-  #tabHouse > * { margin-bottom: 0; }
-  /* Fixed groups for the Overview: CSS columns follow the page order and left the first
-     column too tall for a 1080p screen. */
-  #tabOverview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  #tabOverview > .col { display: flex; flex-direction: column; gap: 16px; margin-bottom: 0; }
-  #tabOverview > .col:first-child { grid-row: span 2; }
-  /* the columns end on the same line: the forecast rows, the chart and the lists stretch */
-  #tabOverview .grid2 { flex: 1; }
-  #wxCard { flex: 1; display: flex; flex-direction: column; }
-  #forecast { flex: 1; display: flex; flex-direction: column; }
-  .fcRow { flex: 1; }
-  .clock { font-size: 116px; }
-  .horizon { margin-top: 18px; }
-  .fcRow { padding: 6px 0; }
-}
-@media (orientation: landscape) and (min-width: 1600px) {
-  #tabOverview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  #tabOverview > .col:first-child { grid-row: auto; }
-}
-@media (orientation: landscape) and (min-width: 2200px) {
-  .tabPane { column-count: 3; }
-}
 
 /* ---- House: the plan. A small model of the home above the tiles, in the colors of the
    theme (plan3d.js reads the palette from here). Labels and markers are HTML over the
@@ -708,14 +499,6 @@ button.progBlock:hover, .progBlock.open { box-shadow: 0 0 0 2px var(--accent); }
 .planRecenter svg { width: 20px; height: 20px; }
 .planStage canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 14px; }
 
-/* ---- House: the tab fits the screen (fitHouse in house.js sets the heights). Upright,
-   the plan over the scenes over the tiles; lying down, the plan beside them. ---- */
-#tabHouse.fitted { display: flex; flex-direction: column; flex-wrap: nowrap; column-count: auto; overflow: hidden; }
-#tabHouse.fitted > * { flex: none; margin-bottom: 0; }
-#tabHouse.fitted .planStage { aspect-ratio: auto; max-height: none; }
-#tabHouse.fitted.wide { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr; align-content: start; }
-#tabHouse.fitted.wide .planCard { grid-row: 1 / -1; height: 100%; }
-#tabHouse.fitted.wide .sceneBar, #tabHouse.fitted.wide .tiles { grid-column: 2; }
 /* The flat view: the same plan from above as SVG, without WebGL or under 720 px. Sizes are in meters. */
 .planStage.flat { aspect-ratio: auto; max-height: none; touch-action: auto; background: none; }
 .planFlat { display: block; width: 100%; max-height: 72vh; }
@@ -745,34 +528,484 @@ button.progBlock:hover, .progBlock.open { box-shadow: 0 0 0 2px var(--accent); }
 .planFlat .pHit { fill: transparent; }
 .planFlat .pPin:focus-visible .pDot, .planFlat .pPin:focus-visible .pCover { stroke: var(--accent); }
 
-/* ---- Narrow screens (phone, small window) ---- */
-@media (max-width: 720px) {
-  .wrap { padding: 14px 12px 22px; }
-  .clock { font-size: 96px; }
-  .tabnav { gap: 18px; overflow-x: auto; }
-  .tabnav span { font-size: 16px; white-space: nowrap; }
-  .wxTemp { font-size: 64px; }
-  .wxIcon .ico { width: 64px; height: 64px; }
-  .grid2, .dl { grid-template-columns: 1fr; }
-  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .meters { grid-template-columns: 1fr; row-gap: 16px; }
-  .meter .v { font-size: 38px; }
-  .card { padding: 18px 16px; }
-  .fcRow { grid-template-columns: 52px 30px 44px 34px 1fr 34px; gap: 8px; }
+
+/* ==================================================================================
+   Page frame: one screen, nothing scrolls. The body is the size of the window, a tab
+   is a box of blocks that fit.js fits to it. The page is drawn for 1080 px upright and
+   1920 px lying down: --z zooms it on a larger screen (--lw and --lh are the size in
+   layout pixels, set by main.js).
+   ================================================================================== */
+html { height: 100%; overflow: hidden; }
+body {
+  --z: 1; --lw: 100vw; --lh: 100dvh;
+  zoom: var(--z); width: var(--lw); height: var(--lh); overflow: hidden;
+  font-family: var(--f-ui); font-size: 15px; color: var(--ink);
+  background-color: var(--abyss); transition: background-color 4s ease;
+  -webkit-font-smoothing: antialiased; user-select: none; overscroll-behavior: none;
+}
+button { font: inherit; }
+.wrap { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; padding: 14px 24px 20px; transition: transform 1.5s ease; }
+.tabnav { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.tabs { display: flex; gap: 28px; min-width: 0; }
+.tabs button { position: relative; min-width: 0; padding: 6px 0; border: 0; background: none; color: var(--ink-3); font-size: 18px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .15s; }
+.tabs button:hover { color: var(--ink-2); }
+.tabs button.on { color: var(--ink); }
+.tabs button.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.status { flex: none; display: flex; align-items: center; gap: 10px; }
+.statPill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px; border: 1px solid currentColor; border-radius: 99px; background: none; color: var(--ink-3); font-size: 13px; font-weight: 600; cursor: pointer; }
+.statPill .ico { width: 15px; height: 15px; }
+.statPill .ico * { color: inherit; }
+.statPill.yellow { color: var(--amber); }
+.statPill.orange { color: #ff9a4d; }
+.statPill.red { color: var(--coral); }
+.statPill.tempo { border-color: var(--rule); color: var(--ink-2); font-weight: 500; }
+.statPill.tempo i { width: 10px; height: 10px; border-radius: 50%; }
+
+.tabPane { position: relative; min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.pg { flex: 1 1 0; min-height: 0; display: flex; gap: 16px; }
+.pc { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.block { position: relative; flex: none; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.fitHide, .rowOut { display: none !important; }
+.measuring > .pg[hidden] { display: flex !important; }
+.measuring .block { height: auto !important; }
+.pager { flex: none; height: 26px; display: flex; align-items: flex-end; justify-content: center; gap: 10px; }
+.pager button { width: 22px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
+.pager button::after { content: ""; display: block; width: 8px; height: 8px; margin: 3px auto; border-radius: 50%; background: var(--ink-3); opacity: .5; }
+.pager button.on::after { background: var(--accent); opacity: 1; }
+/* the pager of a list, in the head of its block */
+.pgr { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 13px; color: var(--ink-3); }
+.pgr button { min-width: 20px; height: 22px; padding: 0 4px; border: 0; background: none; color: var(--ink-2); font-size: 15px; cursor: pointer; }
+.pgr .dot { min-width: 16px; padding: 0; }
+.pgr .dot::after { content: ""; display: block; width: 7px; height: 7px; margin: auto; border-radius: 50%; background: var(--ink-3); opacity: .5; }
+.pgr .dot.on::after { background: var(--accent); opacity: 1; }
+.rows { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+.card { background: var(--hull); border-radius: var(--r-panel); padding: 18px 22px 20px; --ico-bg: var(--hull); }
+.card h2 { font-size: 17px; font-weight: 600; font-stretch: 87.5%; letter-spacing: .01em; color: var(--ink); }
+.bHead { flex: none; display: flex; align-items: baseline; gap: 12px; min-width: 0; margin-bottom: 14px; }
+.bHead h2 { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bHead .meta { min-width: 0; font-size: 14px; color: var(--ink-3); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bHead .chip { flex: none; align-self: center; min-height: 28px; padding: 2px 12px; font-size: 13px; }
+.wrapHead { flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.card.link { cursor: pointer; }
+.card.link:hover { background: var(--hull-2); }
+/* the compact look of a block: tighter, and without what is marked .x2 */
+.block.compact.card { padding: 12px 16px 13px; }
+.block.compact .bHead { margin-bottom: 8px; }
+.block.compact .x2 { display: none !important; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* ---- Overview ---- */
+.hero { container-type: inline-size; padding: 4px 2px 0; --ico-bg: var(--abyss); }
+.clock { font-size: clamp(64px, 20cqi, 150px); font-weight: 300; line-height: .9; letter-spacing: -.02em; white-space: nowrap; }
+.clock .sec { font-size: .27em; letter-spacing: 0; color: var(--ink-3); margin-left: .25em; }
+.date { margin-top: 12px; font-size: clamp(17px, 4.6cqi, 26px); color: var(--ink-2); }
+.date::first-letter { text-transform: uppercase; }
+.nameDay { margin-top: 4px; font-size: 16px; color: var(--ink-3); }
+.hero.compact .clock { font-size: clamp(48px, 13cqi, 84px); }
+.hero.compact .date { margin-top: 6px; font-size: 17px; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; padding: 5px 12px 5px 9px; border-radius: 99px; border: 1px solid currentColor; }
+.alertBand { --sev: var(--amber); padding: 12px 18px 10px 20px; border-radius: 0 14px 14px 0; border-left: 3px solid var(--sev); background: color-mix(in oklab, var(--sev) 9%, var(--hull)); }
+.alertBand[data-sev="orange"] { --sev: #ff9a4d; }
+.alertBand[data-sev="red"] { --sev: var(--coral); }
+.alertBand .bHead { margin-bottom: 4px; }
+.alertBand h2 { font-size: 13px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.alertRow { flex: none; display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 5px 0; border-top: 1px solid var(--rule); }
+.alertRow:first-child { border-top: 0; }
+.alertRow .ico { flex: none; width: 20px; height: 20px; color: var(--amber); }
+.alertRow .ico * { color: inherit; }
+.alertRow.orange .ico { color: #ff9a4d; }
+.alertRow.red .ico { color: var(--coral); }
+.alertRow .tx { flex: 1; min-width: 0; }
+.alertRow .tt { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alertRow .dd { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alertRow .chip { flex: none; min-height: 30px; padding: 2px 12px; font-size: 13px; }
+
+.brief { padding: 4px 0 4px 18px; border-left: 2px solid var(--accent); }
+.briefMeta { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
+.briefing { margin-top: 6px; font-size: 19px; line-height: 1.45; color: var(--ink); max-width: 64ch; text-wrap: pretty; }
+.briefing b { font-weight: 500; }
+.brief.compact .briefing { font-size: 16px; line-height: 1.35; }
+.nowPlaying { flex-direction: row; align-items: center; gap: 14px; padding-left: 2px; }
+.npBtn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: var(--hull); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.npBtn .ico { width: 18px; height: 18px; }
+.npText { min-width: 0; }
+.npTitle { font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.npSub { font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#wxCard { container-type: inline-size; }
+.wxHead { flex: none; flex-wrap: wrap; margin-bottom: 16px; }
+.wxSub .ico { width: 18px; height: 18px; vertical-align: -4px; }
+.seg { flex-wrap: wrap; max-width: 100%; }
+.hourStrip { flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 10px 0 12px; border-top: 1px solid var(--rule); }
+.hourCell { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+.hourCell .ico { width: 28px; height: 28px; }
+.hourCell .tp { font-size: 17px; font-weight: 500; color: var(--ink); }
+.hourCell .pp { min-height: 16px; font-size: 12px; color: var(--sky); }
+.hourCell.sun .tp { font-size: 14px; font-weight: 400; color: var(--ink-2); }
+.hourCell.sun .ico { color: var(--ink-2); }
+.forecast { flex: 1 1 auto; min-height: 0; margin-top: 0; display: flex; flex-direction: column; }
+.fcRow { flex: 1 1 auto; min-height: 34px; }
+.track i { background: var(--accent); opacity: .85; }
+.airLine { flex: none; margin-top: 10px; }
+@container (max-width: 520px) {
+  .wxTemp { font-size: 60px; }
+  .wxIcon .ico { width: 60px; height: 60px; }
+  .wxDesc { font-size: 19px; }
+  .fcRow { grid-template-columns: 46px 28px 40px 32px 1fr 32px; gap: 8px; font-size: 15px; }
+}
+#wxCard.compact .wxHead { margin-bottom: 8px; }
+#wxCard.compact .wxTemp { font-size: 52px; }
+#wxCard.compact .wxIcon .ico { width: 52px; height: 52px; }
+#wxCard.compact .wxDesc { font-size: 18px; }
+#wxCard.compact .hourStrip { padding: 6px 0; }
+#wxCard.compact .fcRow { min-height: 26px; padding: 2px 0; font-size: 14px; }
+#wxCard.compact .fcRow .i .ico { width: 22px; height: 22px; }
+
+.bullets { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.bullet { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; color: var(--ink-2); white-space: nowrap; }
+.bullet .ico { width: 19px; height: 19px; color: var(--ink-3); }
+.bullet b { font-weight: 500; color: var(--ink); }
+.bullet.on .ico { color: var(--accent); }
+.bullet.on .ico * { color: inherit; }
+.sysLine { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 28px; font-size: 15px; color: var(--ink-3); }
+.sysLine b { margin: 0 2px 0 6px; font-size: 20px; font-weight: 500; color: var(--ink); }
+.sysLine .up { margin-left: auto; font-size: 13px; }
+#energyMiniRow { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* ---- Weather tab ---- */
+.mtNow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
+.mtNow .wxNow { flex: none; }
+.mtNow .wxTemp { font-size: 64px; }
+.mtNow .wxIcon .ico { width: 60px; height: 60px; }
+.mtNow .wxDesc { font-size: 20px; }
+.mtNow .readouts { flex: 1 1 380px; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); row-gap: 10px; }
+.mtNow .readout .v { font-size: 21px; }
+.mtHourRow { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
+.mtH { min-width: 0; text-align: center; padding: 8px 2px; border-radius: 10px; background: var(--abyss); --ico-bg: var(--abyss); white-space: nowrap; }
+.mtH .hr { font-size: 12px; color: var(--ink-3); }
+.mtH .ic .ico { width: 26px; height: 26px; margin: 4px 0; }
+.mtH .tp { font-size: 16px; font-weight: 500; }
+.mtH .rain { height: 22px; display: flex; align-items: flex-end; justify-content: center; margin-top: 4px; }
+.mtH .rain i { display: block; width: 55%; border-radius: 2px 2px 0 0; background: var(--sky); }
+.mtH .pp { font-size: 11px; color: var(--ink-3); }
+.mtH .pp.on { color: var(--sky); font-weight: 600; }
+.mtH .vt { font-size: 11px; color: var(--ink-3); }
+.block.compact .mtH .rain, .block.compact .mtH .vt { display: none; }
+.weekRows { container-type: inline-size; }
+.wkRow { flex: 1 1 auto; display: grid; grid-template-columns: minmax(92px, 1.3fr) minmax(0, 1.7fr) 86px 112px 64px 34px 100px; align-items: center; gap: 10px; min-height: 36px; padding: 4px 0; border-top: 1px solid var(--rule); font-size: 15px; white-space: nowrap; }
+.wkRow.head { flex: none; min-height: 0; padding: 0 0 6px; border-top: 0; font-size: 13px; color: var(--ink-3); }
+.wkRow > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wkRow .r { text-align: right; color: var(--ink-2); }
+.wkRow .sky { color: var(--ink-2); }
+.wkRow .sky .ico { width: 24px; height: 24px; margin-right: 6px; }
+.wkRow .today { font-weight: 600; }
+.wkRow .d::first-letter { text-transform: uppercase; }
+@container (max-width: 700px) {
+  .wkRow { grid-template-columns: minmax(70px, 1fr) 34px 82px 104px; }
+  .wkRow .sky span, .wkRow .c5, .wkRow .c6, .wkRow .c7 { display: none; }
+}
+.tileRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tileRow .tile { background: var(--hull); --ico-bg: var(--hull); min-width: 0; }
+.tileRow .tile .big { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.tileRow .tile .lab { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.block.compact .tileRow .tile { padding: 9px 12px; }
+.block.compact .tileRow .tile .big { font-size: 24px; }
+#radarMap { flex: 1 1 auto; min-height: 160px; height: auto; }
+#snowTop { flex: none; }
+.chgLine { flex: none; }
+.warnDesc { margin-top: 2px; }
+
+/* ---- Energy tab ---- */
+.tempoDays { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tempoDay { padding: 12px 16px; border-radius: 12px; background: var(--abyss); min-width: 0; }
+.tempoDay .k { font-size: 14px; color: var(--ink-3); }
+.tempoDay .v { display: flex; align-items: center; margin-top: 4px; font-size: 28px; font-weight: 500; white-space: nowrap; }
+#tempoLeft { margin-top: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.acRow { flex: none; display: grid; grid-template-columns: minmax(0, 1.4fr) 92px 92px minmax(40px, 1fr); align-items: center; gap: 12px; min-height: 38px; border-top: 1px solid var(--rule); font-size: 15px; white-space: nowrap; }
+.acRow.head { min-height: 0; padding-bottom: 6px; border-top: 0; font-size: 13px; color: var(--ink-3); }
+.acRow .nm { overflow: hidden; text-overflow: ellipsis; }
+.acRow .r { text-align: right; }
+.yearBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.yearBody .readouts { flex: none; }
+.monthRow { flex: 1 1 auto; min-height: 150px; margin-top: 18px; }
+.monthCol { display: flex; flex-direction: column; min-width: 0; white-space: nowrap; overflow: hidden; }
+.monthCol .bar { flex: 1 1 0; min-height: 40px; height: auto; }
+.monthCol .p { color: var(--ink-3); }
+.stripWrap { flex: none; }
+.block.compact .monthRow { min-height: 120px; margin-top: 10px; }
+
+/* ---- Machine tab ---- */
+#sysCard .meters { flex: none; margin-bottom: 14px; }
+.histCtl { flex: none; margin-top: 14px; }
+#histCanvas { flex: 1 1 0; min-height: 110px; }
+.legend { flex: none; }
+#sysCard.compact .meter .v { font-size: 34px; }
+#sysCard.compact .spark { height: 26px; margin-top: 4px; }
+#sysCard.compact .meters { margin-bottom: 6px; }
+#sysCard.compact .histCtl { margin-top: 6px; }
+#changeCard { box-shadow: inset 2px 0 0 var(--amber); }
+#changeCard.alert { box-shadow: inset 2px 0 0 var(--coral); }
+.chgLine { flex-wrap: wrap; }
+.incRow { flex: none; white-space: nowrap; }
+.incRow .it { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.machShort { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 24px; font-size: 15px; color: var(--ink-2); }
+.machShort div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.machShort .k { margin-right: 8px; color: var(--ink-3); }
+.btRow { flex: none; }
+#boxRow { margin-top: 14px; }
+
+/* ---- Tools tab ---- */
+.toolGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; align-content: start; }
+.toolGrid .relRow { grid-column: 1 / -1; min-width: 0; white-space: nowrap; }
+.toolGrid .relRow .rn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.toolGrid .relSep { grid-column: 1 / -1; height: 4px; }
+.tgHead { flex: none; margin-bottom: 12px; }
+.tgHead .tgName { flex: 1; }
+.newsRow { flex: none; display: flex; align-items: center; gap: 12px; min-height: 40px; border-top: 1px solid var(--rule); font-size: 15px; white-space: nowrap; cursor: pointer; }
+.newsRow:first-child { border-top: 0; }
+.newsRow .rn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.newsRow .rv { font-weight: 600; color: var(--accent); }
+.newsRow .rd { font-size: 13px; color: var(--ink-3); }
+#newsCard { box-shadow: inset 2px 0 0 var(--accent); }
+.fuelGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 32px; align-content: start; }
+.fuelRow { min-width: 0; }
+.fuelRow .a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fuelRow .a .dim { overflow: hidden; text-overflow: ellipsis; }
+.fuelRow.best .p { color: var(--ink); }
+
+/* ---- House tab ---- */
+.planCard { padding: 12px 14px 14px; }
+.planBar { flex: none; }
+.planStage { flex: 1 1 auto; min-height: 120px; aspect-ratio: auto; max-height: none; }
+.planStage.flat { display: flex; align-items: center; justify-content: center; }
+.planFlat { max-height: 100%; height: 100%; }
+.houseBar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.presence { display: flex; flex-wrap: wrap; gap: 8px; }
+.person { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px 0 10px; border-radius: 99px; border: 1px solid var(--rule); font-size: 14px; color: var(--ink-3); white-space: nowrap; }
+.person .ico { width: 17px; height: 17px; }
+.person.home { border-color: transparent; background: var(--tint); color: var(--ink); }
+.sceneBar { flex: 0 1 auto; gap: 10px; }
+.sceneBtn { min-height: 48px; padding: 8px 18px 8px 14px; }
+.modulesBtn { margin-left: auto; }
+.houseBar.compact .sceneBtn { min-height: 38px; padding: 4px 14px 4px 10px; font-size: 14px; border-radius: 12px; }
+.tilesBlock { container-type: inline-size; }
+.tilesHead { flex: none; display: flex; justify-content: flex-end; min-height: 0; }
+.tilesHead .pgr:not([hidden]) { margin-bottom: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); grid-auto-rows: 72px; gap: 10px; align-content: start; }
+.tiles.tall { grid-auto-rows: 112px; }
+.tiles.dense { grid-auto-rows: 48px; }
+@container (max-width: 460px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---- Panels: a device, the modules, a sheet. One column of blocks, fitted like a tab,
+   with its own tabs when the content has several parts. ---- */
+.detail { position: fixed; inset: 0; z-index: 150; }
+.detailBackdrop { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+.detailPanel { position: absolute; top: 0; right: 0; bottom: 0; width: 440px; max-width: 100%; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px 18px; overflow: hidden; background: var(--hull-2); box-shadow: -20px 0 60px rgba(0,0,0,.45); --ico-bg: var(--hull-2); }
+.detailHead { flex: none; }
+.detailTabs { flex: none; }
+.detailTabs button { min-height: 34px; }
+.detailBody { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.detailBody .block { overflow: hidden; }
+.detailBody .pg { gap: 12px 24px; }
+.detailBody .pc { gap: 14px; }
+.detailFacts { margin-top: 0; padding-top: 0; border-top: 0; flex-direction: column; gap: 0; font-size: 14px; color: var(--ink-2); }
+.factRow { flex: none; display: flex; justify-content: space-between; gap: 12px; min-height: 34px; align-items: center; border-top: 1px solid var(--rule); white-space: nowrap; }
+.factRow:first-child { border-top: 0; }
+.factRow span:first-child { color: var(--ink-3); }
+.factRow span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.helpText { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.helpText b { font-weight: 600; color: var(--ink); }
+.modRow { flex: none; display: flex; align-items: center; gap: 12px; min-height: 46px; border-top: 1px solid var(--rule); }
+.modRow:first-child { border-top: 0; }
+.modRow .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); }
+.modRow.active .dot { background: var(--mint); }
+.modRow .tx { flex: 1; min-width: 0; }
+.modRow .nm { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modRow .st { font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modRow .tag { flex: none; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--rule); font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.crashTable td { white-space: nowrap; }
+.actionRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; }
+.actionRow .bigAction { margin-top: 0; }
+
+/* ---- Night: a dark veil, the clock and the alerts, back at the first touch ---- */
+#nightVeil { position: fixed; inset: 0; z-index: 300; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; background: #000; color: #8f8a99; cursor: pointer; container-type: inline-size; overflow: hidden; }
+#nightVeil .clock { font-size: clamp(64px, 22cqi, 220px); color: #a9a4b4; }
+#nightVeil .nightAlerts { display: flex; flex-direction: column; gap: 8px; max-width: 100%; font-size: 17px; }
+#nightVeil .nightAlerts div { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#nightVeil .nightAlerts .ico { flex: none; width: 20px; height: 20px; color: var(--amber); }
+#nightVeil .nightAlerts .red .ico { color: var(--coral); }
+#nightVeil .nightAlerts .ico * { color: inherit; }
+
+/* ---- Small screens: the same blocks, tighter. Sub-views do the rest. ---- */
+@media (max-width: 760px), (max-height: 520px) {
+  .wrap { gap: 8px; padding: 8px 12px 10px; }
+  .tabs { gap: 14px; }
+  .tabs button { font-size: 14px; padding: 4px 0; }
+  .statPill { height: 24px; padding: 0 8px 0 6px; font-size: 12px; }
+  .statPill.tempo span { display: none; }
+  .pg, .pc { gap: 10px; }
+  .card { padding: 14px 14px 15px; }
+  .bHead { margin-bottom: 10px; }
+  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
+  .readout .v { font-size: 22px; }
+  .meter .v { font-size: 34px; }
+  .meter { padding: 0 12px; }
+  .dl { grid-template-columns: 1fr; }
+  .briefing { font-size: 16px; }
   .snowLine { grid-template-columns: minmax(0, 1fr) 66px 44px 70px; }
   .snowLine .alt, .snowLine .snowBar { display: none; }
   .monthCol .e { display: none; }
   .machRow .ml { width: 96px; }
-  /* the House tab is used with a finger there: two tiles per row, the detail as a sheet from the bottom */
-  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 68px; }
   .planBar { flex-direction: column; }
-  .sceneBar { gap: 10px; }
   .sceneBtn { flex: 1 1 calc(50% - 5px); padding-right: 14px; }
-  .detailPanel { top: auto; left: 0; width: auto; max-height: 88vh; padding: 20px 18px 26px; border-radius: 22px 22px 0 0; box-shadow: 0 -20px 60px rgba(0,0,0,.5); }
   .slider { max-width: none; }
   .slider input[type=range] { height: 6px; }
   .slider input[type=range]::-webkit-slider-thumb { width: 24px; height: 24px; }
-  .segmented button { min-height: 44px; }
   .pressure { grid-template-columns: 1fr; gap: 14px; }
-  .hzMoon span { display: none; }
+  .histTabs span { padding: 4px 8px; }
 }
+/* a phone held upright: the panel is a sheet from the bottom */
+@media (max-width: 760px) and (min-height: 521px) {
+  .detailPanel { top: auto; left: 0; width: auto; height: 86%; padding: 18px 16px 14px; border-radius: 22px 22px 0 0; box-shadow: 0 -20px 60px rgba(0,0,0,.5); }
+  .segmented button { min-height: 42px; }
+}
+/* a short screen (a phone lying down): the panel takes the width, the controls go in two columns */
+@media (max-height: 520px) {
+  .detailPanel { width: min(100%, 720px); gap: 8px; padding: 10px 14px 8px; }
+  .detailName { font-size: 16px; }
+  .detailClose { width: 32px; height: 32px; }
+  .bigStep button { width: 44px; height: 44px; font-size: 24px; }
+  .bigStep .v { font-size: 34px; }
+  .sceneBtn { min-height: 38px; padding: 4px 14px 4px 10px; font-size: 14px; }
+  .clock { line-height: .86; }
+}
+
+/* ---- Adjustments found by the layout check ---- */
+.readouts { padding-bottom: 2px; }
+.wkRow { max-height: 64px; }
+.fcRow { max-height: 84px; }
+.monthRow { max-height: 280px; }
+.tiles .tile { line-height: 1.2; }
+.tiles.tall .tile { padding: 8px 12px 8px 18px; }
+.tiles.tall .tileIcon .ico { width: 22px; height: 22px; }
+.tiles.tall .tileMain { min-height: 0; font-size: 22px; line-height: 1.15; }
+.tiles.tall .tileMore { top: 4px; right: 4px; }
+.tiles.tall .tileCloud { top: 11px; right: 42px; }
+.measuring .tiles { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)) !important; grid-auto-rows: 72px !important; }
+.measuring .compact .tiles { grid-auto-rows: 48px !important; }
+.fuelGrid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.fuelRow { grid-template-columns: 86px minmax(0, 1fr); align-items: center; min-height: 52px; padding: 5px 0; white-space: nowrap; }
+.fuelRow.best .p { font-size: 20px; }
+.fuelRow .a .dim { display: block; }
+.tiles { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.tiles .tile.gone .tileState { white-space: nowrap; line-height: inherit; }
+.slider { min-height: 30px; }
+.legend { min-height: 18px; }
+.helpSteps { padding-left: 20px; }
+.helpSteps li { margin: 4px 0; }
+/* the pager of a list appears and goes without changing the height of its head */
+.bHead { min-height: 24px; }
+.pgr { align-self: center; height: 20px; }
+.pgr button { height: 20px; line-height: 1; }
+.tilesHead { min-height: 0; }
+.tilesHead .pgr:not([hidden]) { height: 20px; margin-bottom: 4px; }
+.forecast { position: relative; overflow: hidden; }
+.wxFoot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 0; }
+.wxFoot .airLine { margin-top: 10px; }
+.block.compact .monthRow { min-height: 96px; }
+#sysCard.compact .spark, #sysCard.compact .legend, #sysCard.compact .meter .s { display: none; }
+#sysCard.compact #histCanvas { min-height: 64px; }
+.wxFoot { min-height: 20px; }
+.meters { padding-bottom: 3px; }
+/* the city is also chosen in the Weather tab: the compact card leaves its switcher out */
+#wxCard.compact .seg, #wxCard.compact #wxNormal { display: none; }
+.effectList { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
+.effectList .chip { flex: none; }
+
+/* ---------- Looks of a block: what only shows compact, never compact, or rich ---------- */
+.block:not(.compact) .compactOnly, .block.compact .fullOnly, .block:not(.rich) .richOnly { display: none !important; }
+
+/* ---------- Overview: the clock and the briefing side by side ---------- */
+.hero { display: flex; flex-direction: row; align-items: flex-start; gap: 36px; }
+.fcRow { padding: 3px 0; }
+.fcRow .i .ico { width: 26px; height: 26px; }
+.heroClock { flex: none; }
+.hero .brief { flex: 1 1 0; min-width: 0; margin-top: 10px; }
+.hero.compact .briefing { font-size: 16px; line-height: 1.35; }
+#sysMini .meters { margin-bottom: 0; }
+#sysMini.compact { padding-top: 14px; padding-bottom: 14px; }
+.kvGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; margin-top: 14px; border-top: 1px solid var(--rule); }
+.kvGrid > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.kvGrid .k { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.btGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 28px; }
+.btGrid .btRow { border-top: 0; border-bottom: 1px solid var(--rule); }
+.storeLine { display: flex; flex-wrap: wrap; gap: 6px 26px; padding-top: 12px; font-size: 15px; color: var(--ink-2); }
+.storeLine span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.storeLine .ico { width: 18px; height: 18px; color: var(--ink-3); }
+.storeLine b { font-weight: 600; color: var(--ink); }
+.roomLines { display: flex; flex-direction: column; }
+.roomLine { display: flex; align-items: center; gap: 18px; padding: 9px 0; border-bottom: 1px solid var(--rule); min-width: 0; }
+.roomLine .rn { flex: 0 0 132px; display: flex; align-items: baseline; gap: 8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roomLine .rn small { font-weight: 400; color: var(--ink-3); }
+.roomLine .rp { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 22px; }
+.sceneRow { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 14px; }
+.sceneRow .sceneBtn { min-height: 46px; padding: 6px 18px 6px 12px; }
+#homeMeta { display: flex; gap: 14px; }
+#homeMeta .person { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+#homeMeta .person.home { color: var(--ink); }
+#homeMeta .person .ico { width: 16px; height: 16px; }
+#homeCard.compact .sceneRow, #homeCard.compact .roomLine:nth-child(n+3) { display: none; }
+#wxMore { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
+@media (max-width: 760px), (max-height: 520px) {
+  .hero { flex-direction: column; gap: 8px; }
+  .hero .brief { margin-top: 0; }
+  .roomLine .rn { flex-basis: 96px; }
+  .kvGrid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Charts of the rich looks: a shape and its end figures, no axis ---------- */
+.chartBox { position: relative; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.chart { display: block; width: 100%; }
+.chartSide { position: absolute; right: 0; top: 12px; bottom: 22px; display: flex; flex-direction: column; justify-content: space-between; font-size: 12px; color: var(--ink-3); pointer-events: none; }
+.chartFeet { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+.barDays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; height: 150px; align-items: end; }
+.barDay { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+.barDay .stack { width: 100%; max-width: 46px; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 2px; border-radius: 6px 6px 2px 2px; overflow: hidden; }
+.barDay .stack i { display: block; background: var(--accent); min-height: 2px; }
+.barDay .tot, .barDay .dayL { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.chartLegend { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.chartLegend span { display: inline-flex; align-items: center; gap: 7px; }
+.chartLegend i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+.chartLegend b { font-weight: 600; color: var(--ink); }
+.tempoCal { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.calHead { font-size: 13px; color: var(--ink-3); margin-bottom: 8px; }
+.calHead::first-letter { text-transform: uppercase; }
+.calGrid { display: grid; grid-template-columns: repeat(var(--n, 31), 1fr); gap: 3px; }
+.calGrid span { height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 12px; border-radius: 6px; color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 0; }
+.calGrid span b { font-size: 9px; font-weight: 500; opacity: .7; text-transform: uppercase; }
+.calGrid .we b { opacity: 1; color: var(--ink-2); }
+.calGrid .cd { background: var(--tint); }
+.calGrid .cd.known { background: color-mix(in oklab, var(--c) 34%, transparent); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) 60%, transparent); }
+.calGrid .cd.today { font-weight: 700; outline: 2px solid var(--ink-2); outline-offset: -2px; }
+#radarSlot { height: 360px; border-radius: 14px; overflow: hidden; }
+#radarSlot #radarMap, #radarHome #radarMap { height: 100%; }
+#radarHome { flex: 1 1 auto; min-height: 0; }
+.weekFeet { display: grid; grid-template-columns: repeat(7, 1fr); margin: 2px 0 0; padding: 0 12px; text-align: center; font-size: 13px; color: var(--ink-3); }
+.weekFeet span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.weekFeet b { color: var(--ink); font-weight: 600; }
+.weekFeet em { font-style: normal; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#mtAirMore { margin-top: 12px; }
+.wkRow { padding-top: 5px; padding-bottom: 5px; }
+.pcUpdRows .relRow .dim { margin-left: 10px; font-weight: 400; }
+.pcUpdRows .rs.warn { color: var(--amber, #f0b35a); }
+
+/* A plot whose labels sit on its own top and bottom edges, and which takes the height its card grew by. */
+.plot { position: relative; }
+.plot .chartSide { top: 0; bottom: 0; }
+.fuelCard .chartBox { flex: 1 0 auto; display: flex; flex-direction: column; }
+.fuelCard .plot { flex: 1 1 auto; display: flex; min-height: 0; }
+.fuelCard .plot .chart { flex: 1 1 auto; height: auto; }
+.fuelCard #fuelList { flex: 0 1 auto; min-height: 0; }
+@media (max-width: 760px) { .calGrid { grid-template-columns: repeat(16, 1fr); } }

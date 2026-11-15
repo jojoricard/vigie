@@ -83,7 +83,7 @@ const TV = { id: 'living-tv', name: 'Television', host: '192.0.2.30', key: 'key-
 const INPUTS = [{ id: 'HDMI_1', label: 'Console', appId: 'com.webos.app.hdmi1' }, { id: 'HDMI_2', label: 'Player', appId: 'com.webos.app.hdmi2' }];
 
 // A set that answers the questions of the driver. `off`: nothing listens. `secure`: only the secure port does.
-function fakeSet({ off = false, secure = true, keys = ['key-1'], power = 'Active', app = 'com.webos.app.hdmi2', accept = true } = {}) {
+function fakeSet({ off = false, secure = true, keys = ['key-1'], power = 'Active', app = 'com.webos.app.hdmi2', accept = true, blacklist = false } = {}) {
   const set = { opened: [], asked: [], prompts: 0, sent: [], closed: 0 };
   set.open = async (url, { onMessage }) => {
     set.opened.push(url);
@@ -94,6 +94,9 @@ function fakeSet({ off = false, secure = true, keys = ['key-1'], power = 'Active
       send(text) {
         const msg = JSON.parse(text);
         if (msg.type === 'register') {
+          set.registered = (set.registered || []).concat([msg.payload]);
+          // firmware from 2026: the signature of the shared manifest is refused before the key is even read
+          if (blacklist && msg.payload.manifest.signatures) return answer({ id: msg.id, type: 'error', error: '403 Pairing rejected: blacklisted certificate detected', payload: {} });
           const key = msg.payload['client-key'];
           if (key && keys.includes(key)) return answer({ id: msg.id, type: 'registered', payload: { 'client-key': key } });
           answer({ id: msg.id, type: 'response', payload: { pairingType: 'PROMPT', returnValue: true } });
@@ -126,6 +129,30 @@ test('lg-webos: a set that is on gives its volume, its input and what it can do'
     source: { options: ['HDMI_1', 'HDMI_2'], labels: { HDMI_1: 'Console', HDMI_2: 'Player' } },
   });
   assert.deepEqual(set.opened, ['wss://192.0.2.30:3001/'], 'one connection, kept for the questions that follow');
+});
+
+test('lg-webos: a set that blacklists the signed registration is paired and reached without the signature', async () => {
+  const manifest = require('../house/drivers/lg-webos-manifest.json');
+  const bare = lgWebos.unsigned(manifest);
+  assert.ok(!('signed' in bare.manifest) && !('signatures' in bare.manifest));
+  for (const p of [...manifest.manifest.permissions, ...manifest.manifest.signed.permissions]) assert.ok(bare.manifest.permissions.includes(p), `${p} is still asked for`);
+  assert.equal(new Set(bare.manifest.permissions).size, bare.manifest.permissions.length);
+  assert.ok(manifest.manifest.signatures, 'the manifest of the file is left as it is');
+  // pairing: refused with the signature, asked again without it, accepted on the screen
+  const fresh = fakeSet({ blacklist: true, keys: [] });
+  let prompts = 0;
+  assert.equal(await fresh.driver.pair('192.0.2.30', { onPrompt: () => prompts++ }), 'key-new');
+  assert.deepEqual([fresh.registered.map((r) => !!r.manifest.signatures), prompts], [[true, false], 1]);
+  // every connection after: the signature is tried once, then never again for that set
+  const set = fakeSet({ blacklist: true });
+  assert.equal((await set.driver.state(TV)).on, true);
+  assert.deepEqual(set.registered.map((r) => [!!r.manifest.signatures, r['client-key']]), [[true, 'key-1'], [false, 'key-1']]);
+  // an older set is never asked without the signature
+  const old = fakeSet();
+  await old.driver.state(TV);
+  assert.deepEqual(old.registered.map((r) => !!r.manifest.signatures), [true]);
+  // and another refusal is still a refusal
+  await assert.rejects(fakeSet({ blacklist: true, keys: [], accept: false }).driver.pair('192.0.2.30', { waitMs: 30 }), /pairing not accepted/);
 });
 
 test('lg-webos: an older set only answers on the plain port, and that is remembered', async () => {

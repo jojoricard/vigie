@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Syntax of the agent
-        run: for f in agent.js lib/*.js; do node --check "$f"; done
+        run: for f in agent.js lib/*.js house/*.js house/drivers/*.js scripts/*.js; do node --check "$f"; done
       # The page modules are ES modules: checked under an .mjs name.
       - name: Syntax of the page
         run: for f in public/js/*.js; do cp "$f" "$RUNNER_TEMP/$(basename "$f" .js).mjs"; node --check "$RUNNER_TEMP/$(basename "$f" .js).mjs"; done

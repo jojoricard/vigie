@@ -9,8 +9,11 @@
    `rotation` is in degrees, clockwise on the plan: at 0 the front faces down the plan.
 
    A part: { shape: "box" | "cyl", size: [w, d, h], at: [x, y, z] (its center),
-   color, look, turn }. `look` is "solid", "glass" (see-through), "sheer" (a curtain)
-   or "glow" (lit by itself: a screen, a lit case). `turn` turns the part on itself. */
+   color, look, turn, tilt, bound }. `look` is "solid", "glass" (see-through), "sheer"
+   (a curtain) or "glow" (lit by itself: a screen, a lit case). `turn` turns the part on
+   itself, `tilt` leans it from the vertical toward its front (the stem of a plant).
+   `bound` says the part is fixed to the wall behind its item: it is cut where that wall
+   is cut for the view, not at the cut of the furniture. */
 import { CUT_HEIGHT } from "./plan.js";
 
 /* Materials by name. A plan may also give any "#rrggbb". These are real colors: the
@@ -36,6 +39,8 @@ const kit = () => {
   const cyl = (color, r, h, x = 0, y = 0, z = 0, extra) => { if (r > 0.002 && h > 0.002) parts.push({ shape: "cyl", size: [2 * r, 2 * r, h], at: [x, y, z + h / 2], color, look: "solid", ...extra }); };
   return { parts, box, cyl };
 };
+// a color a little darker, to tell two leaves or two fronts apart
+const shade = (hexColor, k) => "#" + [1, 3, 5].map((i) => Math.min(255, Math.round(parseInt(hexColor.slice(i, i + 2), 16) * k)).toString(16).padStart(2, "0")).join("");
 // a number that looks random and is always the same for the same place
 const scatter = (i, j = 0) => (((i * 73 + j * 151 + 11) * 2654435761) >>> 0) % 1000 / 1000;
 const BOOKS = ["#8c4a3f", "#3f5f7a", "#c9b88f", "#4f6b4f", "#d8d2c4", "#6a5a7a", "#b98a4e"];
@@ -269,11 +274,36 @@ const TYPES = {
     return k.parts;
   },
 
-  // A plant in its pot: `pot` and `leaves` colors.
+  /* A plant in a round pot: stems that lean outward, each ending in a large leaf, and
+     pebbles on the soil. `pot` and `leaves` are colors, `stems` their number,
+     `pebbles: false` leaves the soil bare, `stakes` adds canes. The size is the pot's
+     footprint and the height of the whole plant. */
   plant([w, d, h], p) {
-    const k = kit(), r = Math.min(w, d) / 2, ph = Math.min(0.35, h * 0.25);
-    k.cyl(colorOf(p.pot, MATERIALS.terracotta), r * 0.55, ph);
-    for (let i = 0; i < 3; i++) k.cyl(colorOf(p.leaves, MATERIALS.green), r * (1 - i * 0.25), (h - ph) / 3, (scatter(i) - 0.5) * 0.06, (scatter(i, 2) - 0.5) * 0.06, ph + i * (h - ph) / 3);
+    const k = kit(), r = Math.min(w, d) / 2, ph = Math.min(0.48, h * 0.27), pot = colorOf(p.pot, MATERIALS.terracotta), green = colorOf(p.leaves, MATERIALS.green);
+    // the pot widens toward its rim
+    k.cyl(pot, r * 0.74, ph * 0.5); k.cyl(pot, r * 0.87, ph * 0.5, 0, 0, ph * 0.5); k.cyl(pot, r * 0.95, 0.03, 0, 0, ph);
+    k.cyl("#3b3128", r * 0.82, 0.012, 0, 0, ph + 0.03);
+    const GOLDEN = 137.5 * Math.PI / 180;
+    if (p.pebbles !== false) {
+      for (let i = 0; i < 11; i++) {
+        const a = i * GOLDEN, rad = r * 0.7 * Math.sqrt((i + 0.5) / 11);
+        k.cyl(i % 3 ? "#d9d5cb" : "#aaa49a", r * (0.1 + 0.05 * scatter(i, 5)), 0.03, Math.cos(a) * rad, Math.sin(a) * rad, ph + 0.04);
+      }
+    }
+    const stems = Math.max(3, Math.min(12, p.stems || 7)), tall = h - ph;
+    for (let i = 0; i < stems; i++) {
+      // each stem leaves the middle of the pot in its own direction, the inner ones taller and straighter
+      const phi = i * GOLDEN + scatter(i, 1), lean = (5 + 15 * (i / stems) + 6 * scatter(i, 2)) * Math.PI / 180;
+      const length = tall * (0.78 - 0.34 * (i / stems) + 0.08 * scatter(i, 3)), turn = Math.atan2(-Math.cos(phi), Math.sin(phi)) * 180 / Math.PI;
+      const dir = (t) => [Math.sin(t) * Math.cos(phi), Math.sin(t) * Math.sin(phi), Math.cos(t)];
+      const foot = [Math.cos(phi) * r * 0.2, Math.sin(phi) * r * 0.2, ph + 0.03], u = dir(lean);
+      k.parts.push({ shape: "cyl", size: [0.02, 0.02, length], at: [foot[0] + u[0] * length / 2, foot[1] + u[1] * length / 2, foot[2] + u[2] * length / 2], color: green, look: "solid", turn, tilt: lean * 180 / Math.PI });
+      // the leaf carries on from the tip of its stem, leaning further out: a long blade, wider than it is thick
+      const tip = [foot[0] + u[0] * length, foot[1] + u[1] * length, foot[2] + u[2] * length], bend = lean + (20 + 16 * scatter(i, 4)) * Math.PI / 180, v = dir(bend);
+      const blade = Math.min(tall * 0.36, h - tip[2] + 0.1) * (0.85 + 0.3 * scatter(i, 6)), wide = 0.13 + 0.07 * scatter(i, 7);
+      k.parts.push({ shape: "box", size: [wide, 0.014, blade], at: [tip[0] + v[0] * blade / 2, tip[1] + v[1] * blade / 2, tip[2] + v[2] * blade / 2], color: i % 2 ? green : shade(green, 0.86), look: "solid", turn, tilt: bend * 180 / Math.PI });
+    }
+    for (let i = 0; i < (p.stakes || 0); i++) k.cyl(MATERIALS.wicker, 0.008, tall * 0.92, (i - 0.5) * 0.06, -r * 0.3, ph);
     return k.parts;
   },
 
@@ -304,10 +334,42 @@ const TYPES = {
     return k.parts;
   },
 
-  // A sheer curtain in front of a window: a few soft folds, seen through.
+  /* A sheer curtain placed by hand, for a window the plan does not describe: soft folds
+     from its rod to the floor, seen through. A window of the plan takes `curtain` on its
+     opening instead, and the model hangs it by itself. */
   curtain([w, d, h], p) {
     const k = kit(), n = Math.max(3, Math.round(w / 0.16));
-    for (let i = 0; i < n; i++) k.box(colorOf(p.color, MATERIALS.white), w / n + 0.004, 0.012, h, -w / 2 + (i + 0.5) * w / n, (i % 2 ? 1 : -1) * d * 0.3, 0, { look: "sheer" });
+    for (let i = 0; i < n; i++) k.box(colorOf(p.color, MATERIALS.white), w / n + 0.004, 0.012, h, -w / 2 + (i + 0.5) * w / n, (i % 2 ? 1 : -1) * d * 0.3, 0, { look: "sheer", bound: true });
+    k.box(MATERIALS.charcoal, w + 0.06, 0.025, 0.025, 0, 0, h, { bound: true });
+    return k.parts;
+  },
+
+  /* A run of kitchen units against a wall, at the standard sizes whatever height the
+     plan gives: a plinth, base units 0.87 m high, a worktop that ends at 0.90 m. `doors`
+     is the number of fronts, `body` and `top` their colors. `uppers: true` adds the wall
+     units, fixed to the wall above the worktop (from 1.40 m to 2.10 m, 0.35 m deep).
+     `hob` and `sink` are [from, to] fractions of the width. */
+  kitchen([w, d], p) {
+    const k = kit(), body = colorOf(p.body, MATERIALS.white), top = colorOf(p.top, MATERIALS.slate), doors = Math.max(1, p.doors || Math.round(w / 0.6));
+    const PLINTH = 0.1, WORKTOP = 0.9, SLAB = 0.03;
+    k.box(MATERIALS.charcoal, w, d - 0.06, PLINTH, 0, -0.03, 0);
+    k.box(body, w, d - 0.02, WORKTOP - SLAB - PLINTH, 0, -0.01, PLINTH);
+    for (let i = 0; i < doors; i++) {
+      const x = -w / 2 + (i + 0.5) * w / doors;
+      k.box(body, w / doors - 0.008, 0.016, WORKTOP - SLAB - PLINTH - 0.01, x, d / 2 - 0.012, PLINTH + 0.005);
+      k.box(MATERIALS.charcoal, 0.012, 0.014, 0.14, x + (i % 2 ? -1 : 1) * (w / doors / 2 - 0.05), d / 2 + 0.004, 0.62);
+    }
+    k.box(top, w, d + 0.02, SLAB, 0, 0.01, WORKTOP - SLAB);
+    const span = ([a, b]) => [(a + b) / 2 * w - w / 2, (b - a) * w];
+    if (Array.isArray(p.hob)) { const [x, len] = span(p.hob); k.box(MATERIALS.screen, len, d * 0.78, 0.008, x, 0, WORKTOP); }
+    if (Array.isArray(p.sink)) { const [x, len] = span(p.sink); k.box(MATERIALS.steel, len, d * 0.66, 0.008, x, 0, WORKTOP); k.cyl(MATERIALS.chrome, 0.012, 0.22, x, -d * 0.36, WORKTOP); }
+    if (p.uppers) {
+      const UP_FROM = 1.4, UP_HEIGHT = 0.7, UP_DEEP = 0.35, n = Math.max(1, typeof p.uppers === "number" ? p.uppers : doors);
+      k.box(body, w, UP_DEEP, UP_HEIGHT, 0, -d / 2 + UP_DEEP / 2, UP_FROM, { bound: true });
+      for (let i = 0; i < n; i++) k.box(shade(body, 0.94), w / n - 0.008, 0.016, UP_HEIGHT - 0.01, -w / 2 + (i + 0.5) * w / n, -d / 2 + UP_DEEP + 0.004, UP_FROM + 0.005, { bound: true });
+      // the splashback, from the worktop up behind the wall units: it is what holds them to the wall for the eye
+      k.box(colorOf(p.splash, shade(body, 1.04)), w, 0.012, UP_FROM + UP_HEIGHT - WORKTOP, 0, -d / 2 + 0.006, WORKTOP, { bound: true });
+    }
     return k.parts;
   },
 
@@ -354,9 +416,12 @@ export function furnitureParts(item) {
   const built = TYPES[type](item.size, type === "box" ? { color: item.color || params.color } : params);
   const limit = (TALL.has(type) ? TALL_LIMIT : FLOOR_LIMIT) - (item.elevation || 0), out = [];
   for (const part of built) {
-    const h = part.lie ? part.size[0] : part.size[2], bottom = part.at[2] - h / 2, top = part.at[2] + h / 2;
+    // what is fixed to a wall is cut by the model, where that wall is cut for the view
+    if (part.bound) { out.push(part); continue; }
+    // a leaning part is as tall as its lean leaves it
+    const h = part.lie ? part.size[0] : part.size[2] * Math.cos((part.tilt || 0) * Math.PI / 180), bottom = part.at[2] - h / 2, top = part.at[2] + h / 2;
     if (bottom >= limit) continue;
-    if (top <= limit || part.lie) { out.push(part); continue; }
+    if (top <= limit || part.lie || part.tilt) { out.push(part); continue; }
     out.push({ ...part, size: [part.size[0], part.size[1], limit - bottom], at: [part.at[0], part.at[1], (bottom + limit) / 2] });
   }
   return out;

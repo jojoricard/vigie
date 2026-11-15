@@ -1,30 +1,15 @@
-/* System card: CPU/GPU/RAM meters with their last hour, sensor rows, the history
-   chart with markers, processes, storage, batteries and the threshold banner.
-   Sensors come already parsed by the agent (/sensors). */
+/* The machine's live figures: one line on the Overview, and in the Machine tab the
+   CPU/GPU/RAM meters with their last hour, the sensor rows, the history chart with its
+   markers, storage and batteries. Sensors come already parsed by the agent (/sensors). */
 import { $, LS, state, esc, small, getJson, load, FetchError, cssColor, GIB, MIB, COL } from "./core.js";
+import { queueFit } from "./fit.js";
 import { t, dec, nb, fmtDate, fmtTime } from "./i18n.js";
 import { icon, deviceIcon } from "./icons.js";
 import { renderEnergy } from "./energy.js";
 
-/* ---- threshold banner (red flash at the top of the screen) ----
-   Temperatures only: they are urgent and short-lived. A disk filling up is slow and
-   already shows in the color of its bar, a permanent flashing banner would be noise. */
+// Above these a temperature turns orange then red on its meter. The alert itself is
+// raised by the engine (alerts.js), from the same readings.
 const THRESHOLDS = { cpu: 88, gpu: 95, gpuHot: 105, gpuVram: 95, liquid: 45, disk: 70, ram: 72 };
-function checkHwAlerts(d) {
-  const hw = {};
-  if (d.cpuTemp >= THRESHOLDS.cpu) hw.cpu = `CPU ${Math.round(d.cpuTemp)} °C`;
-  if (d.gpuTemp >= THRESHOLDS.gpu) hw.gpu = `GPU ${Math.round(d.gpuTemp)} °C`;
-  // the real GPU risk is on the hotspot/VRAM side, hotter than the core
-  if (d.gpuHot >= THRESHOLDS.gpuHot) hw.gpuHot = `GPU hotspot ${Math.round(d.gpuHot)} °C`;
-  if (d.gpuVram >= THRESHOLDS.gpuVram) hw.gpuVram = `VRAM ${Math.round(d.gpuVram)} °C`;
-  if (d.liquidTemp >= THRESHOLDS.liquid) hw.liquid = `${t("banner.liquid")} ${dec(d.liquidTemp)} °C`;
-  if (d.ramTemp >= THRESHOLDS.ram) hw.ram = `RAM ${Math.round(d.ramTemp)} °C`;
-  const hotDisk = d.diskTemps.find((v) => v >= THRESHOLDS.disk);
-  if (hotDisk) hw.disk = `${t("banner.disk")} ${Math.round(hotDisk)} °C`;
-  const all = Object.values(hw);
-  $("alertBanner").hidden = !all.length;
-  $("alertBanner").textContent = all.length ? "⚠ " + all.join("  ·  ") : "";
-}
 
 /* ---- meters: big value, temperature, and the last hour as a line ---- */
 const heat = (v, warn, bad) => v == null ? "inherit" : v >= bad ? COL.bad : v >= warn ? COL.warn : "inherit";
@@ -54,9 +39,20 @@ function meter(key, label, load, sub) {
     <div class="s">${sub || "&nbsp;"}</div>${spark(key)}</div>`;
 }
 
+// The Overview's line: load and temperature of the CPU and the GPU, memory, time on.
+let uptime = "";
+function renderSysLine(d) {
+  const part = (label, load, temp, warn, bad) => `<span>${label}<b class="num">${load != null ? Math.round(load) : "–"} %</b>${temp != null ? tempSpan(temp, warn, bad, `${Math.round(temp)}°`) : ""}</span>`;
+  $("ovUp").textContent = uptime;
+  $("sysLine").innerHTML = (d ? part("CPU", d.cpuLoad, d.cpuTemp, 75, THRESHOLDS.cpu) + part("GPU", d.gpuLoad, d.gpuTemp, 80, THRESHOLDS.gpu) + part("RAM", d.ramLoad, null) : `<span>${t("lhm.short")}</span>`)
+    + (uptime ? `<span class="up">${uptime}</span>` : "");
+}
+
 function sensorProblem(msg) {
+  state.sensors = null;
+  renderSysLine(null);
   $("lhmStatus").hidden = false;
-  $("lhmStatus").textContent = "⚠ " + msg;
+  $("lhmStatus").textContent = msg;
   $("meters").innerHTML = meter("cpu", "CPU", null) + meter("gpu", "GPU", null) + meter("ram", "RAM", null);
   $("sysList").innerHTML = "";
 }
@@ -77,12 +73,25 @@ export async function refreshSensors() {
   if (agentFails >= 3) location.reload();
   agentFails = 0;
   if (!d.count) return sensorProblem(t("lhm.noSensor"));
+  state.sensors = d;
+  renderSysLine(d);
   $("lhmStatus").hidden = true;
   const temp = (v, warn, bad, range) => v != null ? `${tempSpan(v, warn, bad, Math.round(v) + " °C")}${range ? `<span class="dim">${range}</span>` : ""}` : "";
   $("meters").innerHTML =
     meter("cpu", "CPU", d.cpuLoad, temp(d.cpuTemp, 75, THRESHOLDS.cpu, dayStats.cpu)) +
     meter("gpu", "GPU", d.gpuLoad, temp(d.gpuTemp, 80, THRESHOLDS.gpu, dayStats.gpu)) +
     meter("ram", "RAM", d.ramLoad, d.ramUsed != null ? `${dec(d.ramUsed)} ${t("unit.gb")}${state.totalRamGb ? `<span class="dim">/ ${Math.round(state.totalRamGb)} ${t("unit.gb")}</span>` : ""}` : "");
+  // the same three gauges on the Overview, and in its rich look what a glance at the GPU and the line wants
+  $("ovMeters").innerHTML = $("meters").innerHTML;
+  const gpuFan = d.fans.find((f) => /gpu/i.test(f.name));
+  const kv = (k, v) => `<div><span class="k">${k}</span><span class="v num">${v}</span></div>`;
+  $("ovSysMore").innerHTML = [
+    gpuFan ? kv(t("sys.gpuFan"), `${nb(gpuFan.rpm)} ${t("unit.rpm")}`) : "",
+    d.gpuHot != null ? kv(t("sys.hotspot"), tempSpan(d.gpuHot, 95, THRESHOLDS.gpuHot, `${Math.round(d.gpuHot)} °C`)) : "",
+    d.liquidTemp != null ? kv(t("sys.liquid"), tempSpan(d.liquidTemp, 40, THRESHOLDS.liquid, `${dec(d.liquidTemp)} °C`)) : "",
+    d.net ? kv(t("sys.network"), `↓ ${fmtBps(d.net.down)}&nbsp;&nbsp;↑ ${fmtBps(d.net.up)}`) : "",
+  ].join("");
+  renderStoreLine();
   // Installed RAM, from "used / %": the scale of the memory column
   if (d.ramUsed > 0 && d.ramLoad > 1) state.totalRamGb = (d.ramUsed / d.ramLoad) * 100;
   // live power feeds the Electricity card, redrawn when it moves by 5 W
@@ -105,7 +114,6 @@ export async function refreshSensors() {
     ...d.fans.map((f) => row(esc(f.name) + (names[f.name] > 1 ? " · " + t("fan." + f.source) : ""), `${nb(f.rpm)} ${t("unit.rpm")}`)),
   ].join("");
   renderSsd(d.ssd);
-  checkHwAlerts(d);
 }
 
 function renderSsd(ssd) {
@@ -167,6 +175,8 @@ function initTabs(id, attr, getCur, setCur) {
   sync();
 }
 export function initHistControls() {
+  // the canvas takes the room its block is given: drawn again whenever that changes
+  new ResizeObserver(() => drawHistory()).observe($("histCanvas"));
   initTabs("histRange", "r", () => histRange, (v) => { histRange = v; LS.set("vigie.histRange", v); });
   initTabs("histMetric", "m", () => histMetric, (v) => { histMetric = v; LS.set("vigie.histMetric", v); });
 }
@@ -186,7 +196,7 @@ export function drawHistory() {
   const h = lastHist;
   const cv = $("histCanvas");
   const W = cv.clientWidth, H = cv.clientHeight;
-  if (!W) return;                      // hidden tab: redrawn when shown
+  if (!W || !H) return;                // hidden tab: redrawn when shown
   // pixels per CSS pixel: the screen's ratio times the page zoom (only the rect includes it)
   const k = (devicePixelRatio || 1) * cv.getBoundingClientRect().width / W;
   cv.width = W * k; cv.height = H * k;
@@ -301,43 +311,51 @@ export function drawHistory() {
   ctx.setLineDash([]);
 
   // legend: only series with data, and only the marker types actually drawn
+  const legendWas = $("histLegend").offsetHeight;
   $("histLegend").innerHTML = series
     .filter(([i]) => hist.some((s) => s[i] != null))
     .map(([, color, label]) => `<span><i style="background:${color}"></i>${label}</span>`).join("")
     + (marks.some((r) => r.type === "incident") ? `<span><i style="background:${incidentCol}"></i>${t("hist.incident")}</span>` : "")
     + (marks.some((r) => r.type === "update") ? `<span><i style="background:${updateCol}"></i>${t("hist.update")}</span>` : "");
+  // a legend that takes a line more (or appears) changes what its block needs
+  if ($("histLegend").offsetHeight !== legendWas) queueFit();
 }
 
-/* ---- uptime and top processes ---- */
+/* ---- uptime ---- */
 const fmtUptime = (s) => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return (d ? d + " " + t("unit.day") + " " : "") + h + " h " + String(m).padStart(2, "0"); };
 
 export async function refreshSystem() {
   const j = await load("/system");
   if (!j) return;
-  $("uptimeVal").textContent = t("sys.upFor", fmtUptime(j.uptime));
-  // No bars here: at rest the values sit within a few percent and a bar shows
-  // nothing. Aligned figures compare well on their own.
-  const head = `<tr class="pHead"><td>${t("proc.name")}</td><td class="r">${t("proc.cpu")}</td><td class="r">${t("proc.mem")}</td></tr>`;
-  $("procTable").innerHTML = head + (j.processes.map((p) => {
-    const col = p.cpu > 50 ? COL.bad : p.cpu > 25 ? COL.warn : "inherit";
-    return `<tr>
-      <td>${esc(p.name)}${p.count > 1 ? ` <span class="count">×${p.count}</span>` : ""}</td>
-      <td class="r num" style="color:${col}">${dec(p.cpu)} %</td>
-      <td class="r num">${dec(p.mem / GIB)} ${t("unit.gb")}</td></tr>`;
-  }).join("") || '<tr><td class="err" colspan="3">–</td></tr>');
+  uptime = t("sys.upFor", fmtUptime(j.uptime));
+  $("uptimeVal").textContent = uptime;
+  renderSysLine(state.sensors);
 }
 
 /* ---- disks and batteries ---- */
+// The Overview's line on storage: the room left on each disk, and how worn the SSD is.
+function renderStoreLine() {
+  const disks = (state.devices && state.devices.disks) || [], ssd = state.sensors && state.sensors.ssd;
+  $("ovStore").innerHTML = [
+    ...disks.map((d) => { const used = ((d.total - d.free) / d.total) * 100; return `<span>${icon("disk")}${esc(d.id)} <b class="num" style="color:${used > 90 ? COL.bad : "inherit"}">${t("disk.freeShort", nb(d.free / GIB))}</b></span>`; }),
+    ssd && ssd.life != null ? `<span>${t("ssd.short")} <b class="num" style="color:${ssd.life <= 15 ? COL.bad : "inherit"}">${Math.round(ssd.life)} %</b></span>` : "",
+  ].join("");
+}
+
 export async function refreshDevices() {
   const j = await load("/devices");
   if (!j) return;
+  state.devices = j;
   $("diskList").innerHTML = j.disks.map((d) => {
     const used = Math.round(((d.total - d.free) / d.total) * 100);
     return `<div class="diskRow"><div class="l"><span>${esc(d.id)}</span><span class="muted num">${t("disk.free", nb(d.free / GIB), used)}</span></div>
       <div class="barline"><i style="width:${used}%;background:${used > 90 ? COL.bad : used > 75 ? COL.warn : "var(--accent)"}"></i></div></div>`;
   }).join("") || '<div class="err">–</div>';
-  $("btList").classList.remove("err");
   $("btList").innerHTML = j.batteries.length
     ? j.batteries.map((b) => `<div class="btRow${b.stale ? " stale" : ""}"${b.stale ? ` title="${t("battery.stale")}"` : ""}><span>${deviceIcon(b.name)}${esc(b.name)}</span><span class="num" style="color:${!b.stale && b.level < 20 ? COL.bad : "inherit"}">${b.stale ? "~" : ""}${b.level} %</span></div>`).join("")
     : `<div class="err">${t("battery.none")}</div>`;
+  // on the Overview: the batteries (none: nothing), then storage in one line
+  $("ovBatt").innerHTML = j.batteries.length ? $("btList").innerHTML : "";
+  $("periphCard").hidden = !j.batteries.length && !j.disks.length;
+  renderStoreLine();
 }

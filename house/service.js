@@ -32,11 +32,16 @@ function authorize({ token, open }, { authorization, origin }) {
   return 0;
 }
 
-/* `readPlan(deviceIds)` gives the floor plan, or is missing when none is configured. */
-function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
-  const rooms = cfg.rooms || [];
+/* `readPlan(deviceIds)` gives the floor plan, or is missing when none is configured.
+ * `home()` gives what belongs to no room (who is in, the state of the line), when a
+ * module reads it. `modules` describes every integration and where it stands; a device
+ * whose module is known but not active is left out altogether: a module waiting for its
+ * hardware or its account shows nothing and asks nothing. */
+function createService(cfg = {}, drivers = {}, { readPlan = null, home = null, modules = [] } = {}) {
+  const waiting = new Set(modules.filter((m) => m.state !== 'active').map((m) => m.id));
+  const rooms = (cfg.rooms || []).map((room) => ({ ...room, devices: (room.devices || []).filter((d) => !waiting.has(d.driver)) }));
   const devices = new Map();
-  for (const room of rooms) for (const d of room.devices || []) devices.set(d.id, { ...d, room: room.id });
+  for (const room of rooms) for (const d of room.devices) devices.set(d.id, { ...d, room: room.id });
   const ambiances = cfg.ambiances || [];
   const scenes = cfg.scenes || [];
   const cache = new Map();   // device id -> { at, view }
@@ -52,7 +57,12 @@ function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
     try {
       let via = driver;
       let state = await driver.state(device);
-      if (!state.reachable && cloudFor(device)) { via = cloudFor(device); state = { ...(await via.state(device)), via: 'cloud' }; }
+      if (!state.reachable && cloudFor(device)) {
+        // the cloud only stands in for a lamp it reaches. One it has lost too has no power: what the
+        // cloud remembers of it (on, at 60 %) is its past, and the lamp stays silent rather than lit
+        const cloud = await cloudFor(device).state(device).catch((e) => { if (e instanceof DeviceError) return { reachable: false }; throw e; });
+        if (cloud.reachable) { via = cloudFor(device); state = { ...cloud, via: 'cloud' }; }
+      }
       return { capabilities: state.reachable ? await via.capabilities(device) : {}, state };
     } catch (e) {
       if (!(e instanceof DeviceError)) throw e;
@@ -74,7 +84,7 @@ function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
     // The temperature of a room comes from a sensor of its own, never from the probe of
     // an air conditioner, which reads several degrees high.
     const sensor = list.find((d) => d.type === 'sensor' && d.state.reachable && d.state.temperature != null);
-    return { id: room.id, name: room.name, temperature: sensor ? sensor.state.temperature : null, devices: list };
+    return { id: room.id, name: room.name, temperature: sensor ? sensor.state.temperature : null, humidity: sensor ? sensor.state.humidity ?? null : null, devices: list };
   }
 
   // An ambiance is a light preset: it is expanded before anything else is checked.
@@ -132,7 +142,10 @@ function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
           results.push({ device: device.id, ok: true });
         } catch (e) {
           if (!(e instanceof DeviceError) && !(e instanceof RangeError)) throw e;
-          results.push({ device: device.id, ok: false, error: e.message });
+          // a lamp cut at its wall switch is silent, and off: asked to turn off, it has followed
+          const offOnly = Object.keys(action.set || {}).length === 1 && action.set.on === false;
+          const silent = offOnly && (await view(device)).state.error === 'lanSilent';
+          results.push(silent ? { device: device.id, ok: true, skipped: 'no power' } : { device: device.id, ok: false, error: e.message });
         }
       }
     }
@@ -159,6 +172,17 @@ function createService(cfg = {}, drivers = {}, { readPlan = null } = {}) {
         if (path === '/scenes') return [200, sceneList()];
         if (path === '/ambiances') return [200, ambiances];
         if (path === '/discovery') return [200, await discovery()];
+        if (path === '/modules') return [200, modules];
+        // Who is in and how the line is doing. A module that fails says so without failing the answer.
+        if (path === '/home') {
+          if (!home) return [200, { presence: [], network: null }];
+          try {
+            return [200, await home()];
+          } catch (e) {
+            if (!(e instanceof DeviceError)) throw e;
+            return [200, { presence: [], network: null, error: e.message }];
+          }
+        }
         // The plan of the home is private: it exists nowhere else than behind this route.
         if (path === '/plan') {
           if (!readPlan) return [404, { error: 'no plan configured' }];

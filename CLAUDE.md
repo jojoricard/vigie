@@ -7,6 +7,8 @@ A dashboard for a vertical screen, 100 % local, Windows only, no npm dependency 
 - `agent.js`: Node server entry point (`http.createServer`, no framework): config, routes, scheduled jobs
 - `lib/`: the agent's logic, one CommonJS module per topic. `context.js` holds the runtime state (config, database) filled at startup, so the pure functions can be imported by the tests
 - `public/`: the page, `index.html` + `style.css` + ES modules in `public/js/` (`main.js` is the entry point, `icons.js` the SVG icons, `sun.js` the solar elevation, `plan.js` the pure part of the floor plan, `furniture.js` the library of furniture types, `plan3d.js` its drawing). `public/vendor/three/` is three.js at a pinned version, the only third-party code: `public/js/` stays flat, a test reads every entry of it
+- `house/`: the house service (`/api/v1`), one driver per integration in `house/drivers/`, mounted in the agent
+- `scripts/`: `check-scroll.js` and `shots.js`, headless Chrome on the demo data (no npm)
 - `test/`: `node:test` tests on the pure functions and the translations
 
 ## Commands
@@ -14,14 +16,17 @@ A dashboard for a vertical screen, 100 % local, Windows only, no npm dependency 
 ```bash
 node agent.js          # starts the server (http://localhost:5252)
 node --test            # runs the tests
+node agent.js --demo --port=5299      # the page on made-up data, no network, no device
+node scripts/check-scroll.js          # nothing scrolls: every tab, sub-view and panel at nine sizes (one size: 1080x1920)
+node scripts/shots.js docs/tabs       # the screenshots of the README, from the demo
 ```
 
 - `start-dashboard.bat`: starts LHM, the agent in the background and Chrome in kiosk mode. Machine-specific settings (`POS_X`, `POS_Y`, `LHM_PATH`, `BROWSER`) go in `start-dashboard.local.bat`, ignored by git.
 - `stop-dashboard.bat`: stops the agent and the kiosk Chrome.
 - `detect-monitors.ps1`: prints the position of each screen.
-- To check a change: `node --test`, restart `node agent.js` and reload `http://localhost:5252`. CI (GitHub Actions) runs a syntax check of every file and the tests.
+- To check a change: `node --test`, `node scripts/check-scroll.js` when a tab or a panel changed, restart `node agent.js` and reload `http://localhost:5252`. CI (GitHub Actions) runs a syntax check of every file and the tests.
 
-`config.json` (ignored by git, start from `config.example.json`) holds the language, country, cities, snow spots, warning areas, network target, tools hub, electricity price, theme, dimming and API keys. Node 22.13+ is required (`node:sqlite`).
+`config.json` (ignored by git, start from `config.example.json`) holds the language, country, cities, snow spots, warning areas, network target, tools hub, electricity price, theme, dimming, night mode, alert thresholds, the house and API keys. Node 22.13+ is required (`node:sqlite`).
 
 ## Architecture
 
@@ -51,15 +56,23 @@ All on-screen text lives in `I18N` in `public/js/i18n.js`, with the same keys in
 
 ### Tabs
 
-Tabs only show or hide `div.tabPane` (attribute `hidden`). The Overview must fit on one screen without scrolling, in portrait and in landscape: anything added there costs something removed, new cards go to Weather, Machine or Tools.
+Six tabs: Overview, Weather, House, Energy, Machine, Tools. They only show or hide `div.tabPane` (attribute `hidden`).
 
-The House tab fits the screen too (`fitHouse()` in `house.js`): the plan keeps at least half of the height, the tiles tighten when they are many (`tileLayout()`), nothing else goes there. Fuel prices are in Tools.
+**Nothing ever scrolls, and nothing stays empty**, on any tab, at any size, detail panels included. A tab is a box with `data-fit` whose children are `.block` elements, laid out by `public/js/fit.js`: `data-prio` (1 must stay, 2 useful, 3 optional, 4 an extra that only comes once every other block is at its richest), `data-rich` (the block has a rich look, `.rich` in the CSS), `data-grow` (its content scales and takes the room left, `data-hmax` its ceiling), `data-c2`/`data-c3` (its column on a wide screen), `data-view` (a named sub-view; a block without it belongs to the main view). Inside a block, `.compactOnly`, `.fullOnly` (hidden when compact) and `.richOnly` choose what each look shows. The engine starts from the minimum and grows blocks by priority while they fit (normal looks, optional blocks back, rich looks, extras), folds back the same way, shortens lists (`data-rows`, never in the middle of a row), then pages the box; the room left becomes spacing between blocks, never empty space inside a card. A new block needs a priority and a compact look in `style.css`; anything else (a fixed height, `overflow: auto`, a card stretched to fill) breaks the rule. Draw the content first, then call `queueFit()`. `scripts/check-scroll.js` must pass: it also fails on a view more than 12 % empty while a block could be richer, and on a card with an empty zone over 15 % of the screen.
 
-The Overview's three `.col` groups sit side by side in landscape and melt into one column in portrait (`display: contents` plus `order` in `style.css`). A card moved there must find its place in both. `fitToScreen()` in `main.js` zooms the page so the Overview fills the screen: measure with `getBoundingClientRect`, the only size that includes the zoom.
+Detail panels go through `public/js/panel.js` (`openPanel({ head, tabs, body })`), which fits them the same way, with inner tabs.
+
+Alerts are one engine, on the page (`public/js/alerts.js`): a new alert is a rule in `collect()`, never a banner of its own. Thresholds are `RULES`, overridden by `alerts` in the config.
+
+`window.vigie` is a test hook (tabs, sub-views, panels) used by the scripts: keep it working when a tab changes.
+
+### House modules
+
+Devices are driven over the local network only. Each integration is a module (`MODULES` in `house/server.js`): local ones are `ready` until their settings exist, the ones that need an account are optional, `disabled` by default and labelled as such. A module without settings must open nothing and show nothing. No automation runs in the service: programs live in the devices, the PC is not always on. New drivers are tested on simulated answers (`test/house-modules.test.js`), never against a real cloud.
 
 ### Look
 
-The palette derives from `theme.color` (config) through OKLCH relative colors at the top of `style.css`: change `--theme`, not each color. Icons are SVG from `public/js/icons.js`, never emoji.
+The palette derives from `theme.color` (config) through OKLCH relative colors at the top of `style.css`: change `--theme`, not each color. Icons are SVG from `public/js/icons.js`, never emoji. Red, orange and green are for states only. Three sizes of type per block at most.
 
 ## Before changing a card
 

@@ -123,6 +123,11 @@ const UI = {
   moon: '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z"/>',
   sofa: '<path d="M5 11V8.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 19 8.5V11"/><path d="M3 12.5a2 2 0 0 1 4 0V15h10v-2.5a2 2 0 0 1 4 0V18H3ZM6 18v2M18 18v2"/>',
   sparkle: '<path d="M12 3.5 13.8 9a2 2 0 0 0 1.2 1.2l5.5 1.8-5.5 1.8a2 2 0 0 0-1.2 1.2L12 20.5 10.2 15A2 2 0 0 0 9 13.8L3.5 12 9 10.2A2 2 0 0 0 10.2 9Z"/>',
+  sunrise: '<path class="sun" d="M7 17a5 5 0 0 1 10 0"/><path d="M2.5 17h19M5 20.5h14"/><path class="sun" d="M12 9.5v-6M9.5 6l2.5-2.5L14.5 6"/>',
+  sunset: '<path class="sun" d="M7 17a5 5 0 0 1 10 0"/><path d="M2.5 17h19M5 20.5h14"/><path class="sun" d="M12 3.5v6M9.5 7l2.5 2.5L14.5 7"/>',
+  person: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  battery: '<rect x="2.5" y="7.5" width="16.5" height="9" rx="2"/><path d="M21.5 10.5v3M6 10.5v3"/>',
+  plug: '<path d="M9 2.5v5M15 2.5v5M6.5 7.5h11v4a5.5 5.5 0 0 1-11 0ZM12 17v4.5"/>',
   pump: '<path d="M5 20.5V5.5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15M3.5 20.5h12M7.5 8h4"/><path d="M14 10h1.5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 0 3 0V8l-2.5-2.5"/>',
 };
 export const icon = (name, cls = "") => svg(UI[name], "ui " + cls, 24);

@@ -26,9 +26,13 @@ export const state = {
   crashCounts: null,
   lastCrash: null,
   holidays: null,
-  services: null,
   network: null,
   house: null,
+  home: null,            // what the house service knows that belongs to no room: presence, connection
+  notices: [],           // the alerts in progress (alerts.js)
+  sensors: null,
+  devices: null,
+  windows: null,
   fuel: null,
   curCode: 0,
   curIsDay: 1,
@@ -74,8 +78,12 @@ export class FetchError extends Error {
   constructor(message, status = null) { super(message); this.status = status; }
 }
 
+// In demo mode the agent answers what the page would ask the outside world (lib/demo.js).
+const local = (url) => state.cfg && state.cfg.demo && /^https?:/.test(String(url)) ? "/demo/ext?u=" + encodeURIComponent(String(url)) : url;
+
 export async function getJson(url, opts) {
   let res;
+  url = local(url);
   try { res = await fetch(url, opts); } catch (e) { throw new FetchError(`${url}: ${e.message}`); }
   if (!res.ok) throw new FetchError(`${url}: HTTP ${res.status}`, res.status);
   try { return await res.json(); } catch { throw new FetchError(`${url}: invalid JSON`, res.status); }
@@ -90,4 +98,13 @@ export async function load(url, opts) {
     console.warn("Vigie:", e.message);
     return null;
   }
+}
+
+/* "22:30" to minutes, and whether a time of day falls in a span that may cross midnight
+   (from 23:00 to 06:30). Without both ends there is no span. */
+export const minutesOf = (hhmm) => { const [h, m] = String(hhmm).split(":").map(Number); return h * 60 + (m || 0); };
+export function inSpan(minute, from, to) {
+  if (!from || !to) return false;
+  const a = minutesOf(from), b = minutesOf(to);
+  return a > b ? minute >= a || minute < b : minute >= a && minute < b;
 }
