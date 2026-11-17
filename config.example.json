@@ -38,7 +38,7 @@
     "timeout": 2000
   },
   "night": { "from": "23:30", "to": "06:30" },
-  "alerts": { "batteryPct": 20, "diskFreePct": 8, "unreachableMin": 10, "climateOnHours": 12 },
+  "alerts": { "batteryPct": 20, "diskFreePct": 8, "unreachableMin": 10, "climateOn": true, "climateOnHours": 12, "climateOnModes": ["cool", "dry", "fan"], "awayClimate": true, "awayClimateHours": 2 },
   "house": {
     "host": "127.0.0.1",
     "port": 5253,

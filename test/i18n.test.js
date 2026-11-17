@@ -21,7 +21,7 @@ const DYNAMIC = {
   'chg.': ['latency', 'packetLoss', 'thermal', 'consumption', 'diskDrop', 'incidents'],
   'fan.': ['kraken', 'nzxt', 'gpu', 'motherboard'],
   'opt.mode.': ['auto', 'heat', 'cool', 'dry', 'fan', 'off', 'manual', 'schedule', 'eco', 'comfort', 'frost'],
-  'notice.': ['warning', 'tempoRed', 'incident', 'temp', 'ssd', 'disk', 'battery', 'reboot', 'updates', 'unreachable', 'longOn', 'laundry', 'leak', 'connection'],
+  'notice.': ['warning', 'tempoRed', 'incident', 'temp', 'ssd', 'disk', 'battery', 'reboot', 'updates', 'unreachable', 'longOn', 'awayOn', 'laundry', 'leak', 'connection'],
   'modules.': ['active', 'ready', 'disabled'],
   'module.': ['demo', 'daikin', 'govee-lan', 'lg-webos', 'freebox', 'tahoma-local', 'mqtt', 'govee-cloud', 'cozytouch', 'lg-thinq'],
   'driver.': ['local', 'cloud', 'demo'],

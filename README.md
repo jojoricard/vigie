@@ -91,7 +91,7 @@ Everything is set in `config.json`. Only the cities are really needed: any card 
 | `theme` | Background color, the whole palette derives from it: `{ "color": "#0d3b66" }`. Add `"accent"` to pick the highlight color yourself |
 | `dimming` | Screen dimming: `{ "level": 0.45 }` all the time, or `{ "level": 0.45, "from": "22:00", "to": "06:30" }` at night. No key, no dimming |
 | `night` | Night mode: `{ "from": "23:30", "to": "06:30" }`. Between the two, a dark veil and an Overview reduced to the clock and the alerts. A click, a key or a touch wakes the screen for three minutes |
-| `alerts` | Thresholds of the alerts, each optional: `batteryPct` (20), `diskFreePct` (8), `ssdLifePct` (15), `unreachableMin` (10), `climateOnHours` (12), `incidentHours` (24), `cpuTemp` (88), `gpuTemp` (95), `diskTemp` (70), `tempHoldMin` (1) |
+| `alerts` | Thresholds of the alerts, each optional: `batteryPct` (20), `diskFreePct` (8), `ssdLifePct` (15), `unreachableMin` (10), `climateOn` (true) with `climateOnHours` (12) and `climateOnModes` (["cool", "dry", "fan"]) for an air conditioner on without a break in those modes, `awayClimate` (true) with `awayClimateHours` (2) for one running in any mode while nobody has been home that long (presence from the Freebox), `incidentHours` (24), `cpuTemp` (88), `gpuTemp` (95), `diskTemp` (70), `tempHoldMin` (1) |
 | `port`, `lhmUrl`, `lgstrayUrl` | Ports and addresses of the local services |
 
 The other colors (warnings, temperature scale) are in `public/style.css`.

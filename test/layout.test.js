@@ -127,7 +127,7 @@ test('each source gives its alerts, with a severity and how long the condition m
     house: { rooms: [{ id: 'a', name: 'Living room', devices: [
       { id: 'lamp', name: 'Lamp', type: 'light', state: { reachable: false, error: 'lanSilent' } },
       { id: 'bulb', name: 'Bulb', type: 'light', state: { reachable: false, error: 'cloudOffline', via: 'cloud' } },
-      { id: 'ac', name: 'Air conditioner', type: 'climate', state: { reachable: true, on: true } },
+      { id: 'ac', name: 'Air conditioner', type: 'climate', state: { reachable: true, on: true, mode: 'cool' } },
       { id: 'tv', name: 'Television', type: 'tv', state: { reachable: false, error: 'timeout' } },
       { id: 'washer', name: 'Washer', type: 'washer', state: { reachable: true, run: 'done' } },
       { id: 'sink', name: 'Sink', type: 'leak', state: { reachable: true, leak: true } },
@@ -144,6 +144,41 @@ test('each source gives its alerts, with a severity and how long the condition m
   // durations: a unit must have been on for hours, a device silent for minutes
   assert.deepEqual([byId['longOn:ac'].hold, byId['unreachable:tv'].hold, byId['temp:cpu'].hold, byId.ssd.hold], [RULES.climateOnHours * 60, RULES.unreachableMin, RULES.tempHoldMin, 0]);
   assert.deepEqual(collect({}, RULES, now), [], 'a page that knows nothing yet alerts on nothing');
+});
+
+test('an air conditioner on for long alerts when it cools, dries or ventilates, or runs while nobody is home', async () => {
+  const { collect, evaluate, awayMinutes, RULES } = await page('alerts.js');
+  const now = Date.parse('2026-01-15T12:00:00'), h = 3600e3;
+  const unit = (mode) => ({ house: { rooms: [{ id: 'a', name: 'Living room', devices: [{ id: 'ac', name: 'Air conditioner', type: 'climate', state: { reachable: true, on: true, mode } }] }] } });
+  const ids = (s, rules = RULES) => collect(s, rules, now).map((a) => a.id);
+  // winter: the unit heats all day, someone is in
+  const home = { presence: [{ id: 'a', name: 'Alex', home: true, lastSeen: now }] };
+  assert.deepEqual(ids({ ...unit('heat'), home }), [], 'heating all day is what it is there for');
+  assert.deepEqual(ids({ ...unit('auto'), home }), [], 'nor auto, unless the config says so');
+  for (const mode of ['cool', 'dry', 'fan']) assert.deepEqual(ids({ ...unit(mode), home }), ['longOn:ac'], mode);
+  const heater = { house: { rooms: [{ id: 'a', name: 'Bedroom', devices: [{ id: 'r', name: 'Radiator', type: 'heater', state: { reachable: true, on: true, mode: 'manual' } }] }] } };
+  assert.deepEqual(ids(heater), [], 'a radiator is not an air conditioner');
+  // 12 h in cooling, then the alert
+  let r = evaluate(collect({ ...unit('cool'), home }, RULES, now), {}, now);
+  r = evaluate(collect({ ...unit('cool'), home }, RULES, now), r.memory, now + 12 * h - 60e3);
+  assert.deepEqual(r.active, []);
+  r = evaluate(collect({ ...unit('dry'), home }, RULES, now), r.memory, now + 12 * h);
+  assert.deepEqual(r.active.map((a) => a.id), ['longOn:ac'], 'cool then dry: one count, the same unit');
+  // nobody home: the Freebox last saw the phone 3 h ago, the unit heats
+  const gone = (hours) => ({ presence: [{ id: 'a', name: 'Alex', home: false, lastSeen: now - hours * h }, { id: 'b', name: 'Sam', home: false, lastSeen: now - 5 * h }] });
+  const left = collect({ ...unit('heat'), home: gone(3) }, RULES, now);
+  assert.deepEqual(left.map((a) => [a.id, a.hold, a.hours]), [['awayOn:ac', 0, 2]], 'gone for 3 h: at once, whatever the mode');
+  assert.deepEqual(ids({ ...unit('heat'), home: gone(1) }), [], 'gone for 1 h: not yet');
+  assert.deepEqual(collect({ ...unit('heat'), home: { presence: [{ id: 'a', name: 'Alex', home: false, lastSeen: null }] } }, RULES, now).map((a) => [a.id, a.hold]), [['awayOn:ac', 120]], 'never seen: the engine counts the 2 h');
+  assert.deepEqual(ids({ ...unit('cool'), home: gone(3) }).sort(), ['awayOn:ac', 'longOn:ac']);
+  assert.deepEqual(ids({ ...unit('heat'), home: {} }), [], 'without the Freebox, no presence: no away alert');
+  assert.deepEqual(ids({ house: { rooms: [{ id: 'a', name: 'Living room', devices: [{ id: 'ac', name: 'Air conditioner', type: 'climate', state: { reachable: true, on: false, mode: 'heat' } }] }] }, home: gone(3) }), [], 'a unit off is fine');
+  // the config sets the thresholds and turns each rule off
+  assert.deepEqual(ids({ ...unit('heat'), home: gone(3) }, { ...RULES, awayClimateHours: 4 }), []);
+  assert.deepEqual(ids({ ...unit('cool'), home: gone(3) }, { ...RULES, climateOn: false, awayClimate: false }), []);
+  assert.deepEqual(ids({ ...unit('auto'), home }, { ...RULES, climateOnModes: ['cool', 'auto'] }), ['longOn:ac']);
+  assert.equal(collect({ ...unit('cool'), home }, { ...RULES, climateOnHours: 6 }, now)[0].hold, 360);
+  assert.deepEqual([awayMinutes(gone(3).presence, now), awayMinutes(home.presence, now), awayMinutes([], now)], [180, false, false]);
 });
 
 test('an alert waits for its duration, stays quiet once acknowledged, and comes back with its cause', async () => {

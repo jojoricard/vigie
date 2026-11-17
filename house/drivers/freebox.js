@@ -50,8 +50,27 @@ function lastOutage(logs) {
   return null;
 }
 
+/* What goes through the line, in bytes a second. The box gives rate_down and rate_up, a
+ * reading of the moment (bytes a second: bandwidth_* are in bits), and bytes_down and
+ * bytes_up, counted since the line came up. A reading of the moment, taken once every
+ * half minute, catches a page or a stream between two bursts and says 0 while the PC
+ * shows megabytes a second: the counters, read twice, give what really went through in
+ * between. The moment's reading stands in for the first one, and when the counters went
+ * back (the line came up again). prev: { at, down, up } of the last reading. Pure. */
+function lineRate(prev, conn, atMs) {
+  const down = Number(conn.bytes_down), up = Number(conn.bytes_up);
+  const counters = Number.isFinite(down) && Number.isFinite(up) ? { at: atMs, down, up } : null;
+  const seconds = prev && counters ? (atMs - prev.at) / 1000 : 0;
+  const usable = seconds >= 2 && seconds <= 600 && down >= prev.down && up >= prev.up;
+  return {
+    rateDown: usable ? Math.round((down - prev.down) / seconds) : conn.rate_down ?? null,
+    rateUp: usable ? Math.round((up - prev.up) / seconds) : conn.rate_up ?? null,
+    counters,
+  };
+}
+
 function create({ host = 'mafreebox.freebox.fr', appToken, people = [], fetchImpl = fetch, now = Date.now } = {}) {
-  let base = null, session = null, cache = null;
+  let base = null, session = null, cache = null, counters = null;
 
   async function api(method, route, body, token) {
     if (!base) {
@@ -97,11 +116,13 @@ function create({ host = 'mafreebox.freebox.fr', appToken, people = [], fetchImp
       // the log is a comfort: a box that does not give it still gives the rest
       ask('/connection/logs/').catch((e) => { if (!(e instanceof DeviceError)) throw e; return []; }),
     ]);
+    const rate = lineRate(counters, conn, now());
+    counters = rate.counters;
     const value = {
       presence: presence(people, hosts, now()),
       network: {
         state: conn.state === 'up' ? 'up' : 'down', media: conn.media || null,
-        rateDown: conn.rate_down ?? null, rateUp: conn.rate_up ?? null,                 // bytes a second
+        rateDown: rate.rateDown, rateUp: rate.rateUp,                                    // bytes a second
         bandwidthDown: conn.bandwidth_down ?? null, bandwidthUp: conn.bandwidth_up ?? null,   // bits a second
         lastOutage: lastOutage(logs),
       },
@@ -127,4 +148,4 @@ function create({ host = 'mafreebox.freebox.fr', appToken, people = [], fetchImp
   return { home, pair, list: async () => (await ask('/lan/browser/pub/')).map((h) => ({ name: h.primary_name, mac: h.l2ident && h.l2ident.id, active: !!h.active, ip: ipv4(h) })) };
 }
 
-module.exports = { create, sign, presence, lastOutage };
+module.exports = { create, sign, presence, lastOutage, lineRate };

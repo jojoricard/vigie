@@ -269,7 +269,7 @@ What is known of the home itself rather than of a device. Read from the Freebox 
 }
 ```
 
-Someone is home when one of their devices is on the network, or was within the last ten minutes: a phone asleep on Wi-Fi goes quiet for a few minutes. Rates are in bytes per second, bandwidths in bits per second, as the box gives them. A box that does not answer leaves both empty, with an `error`.
+Someone is home when one of their devices is on the network, or was within the last ten minutes: a phone asleep on Wi-Fi goes quiet for a few minutes. Rates are in bytes per second, what went through the line between the last two readings of its counters (`bytes_down` / `bytes_up`, about half a minute apart); the first reading gives the box's own reading of the moment. Bandwidths are in bits per second, as the box gives them. A box that does not answer leaves both empty, with an `error`.
 
 ### `GET /api/v1/discovery`
 

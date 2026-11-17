@@ -16,7 +16,10 @@ export const RULES = {
   diskFreePct: 8,          // free space of a disk, in % of its size
   ssdLifePct: 15,          // life left of the system SSD
   unreachableMin: 10,      // a device of the house without an answer for that long
-  climateOnHours: 12,      // an air conditioner or a heater on without a break
+  // An air conditioner that cools, dries or ventilates without a break: heating all day in
+  // winter is what it is there for. A unit that runs while nobody is home, in any mode.
+  climateOn: true, climateOnHours: 12, climateOnModes: ["cool", "dry", "fan"],
+  awayClimate: true, awayClimateHours: 2,
   incidentHours: 24,       // an incident of the PC stays an alert that long
   ackHours: 24,            // an acknowledged alert still there comes back after that long
   goneMin: 15,             // a condition missing that long is over; less is a source still loading or a blip
@@ -53,13 +56,20 @@ export function collect(s, rules = RULES, now = Date.now()) {
   const w = s.windows;
   if (w && w.reboot && w.reboot.length) add("windows:reboot", "reboot", "yellow");
   if (w && w.updates && w.updates.length) add("windows:updates", "updates", "yellow", { count: w.updates.length });
+  const away = awayMinutes(s.home && s.home.presence, now);
   for (const room of (s.house && s.house.rooms) || []) {
     for (const dev of room.devices) {
       const st = dev.state || {}, where = { name: dev.name, room: room.name };
       // a lamp cut at its wall switch is silent on the LAN, or lost by the cloud: a state of the lamp, not a failure
       if (!st.reachable && st.error !== "lanSilent" && st.error !== "cloudOffline") add(`unreachable:${dev.id}`, "unreachable", "yellow", where, rules.unreachableMin);
       if (!st.reachable) continue;
-      if ((dev.type === "climate" || dev.type === "heater") && st.on) add(`longOn:${dev.id}`, "longOn", "yellow", { ...where, hours: rules.climateOnHours }, rules.climateOnHours * 60);
+      if (dev.type === "climate" && st.on) {
+        if (rules.climateOn && (rules.climateOnModes || []).includes(st.mode)) add(`longOn:${dev.id}`, "longOn", "yellow", { ...where, hours: rules.climateOnHours }, rules.climateOnHours * 60);
+        // the box tells since when nobody is in: no wait when it is already longer than that;
+        // without that time (a person never seen), the engine counts from now
+        const hold = rules.awayClimateHours * 60;
+        if (rules.awayClimate && away !== false && (away === null || away >= hold)) add(`awayOn:${dev.id}`, "awayOn", "yellow", { ...where, hours: rules.awayClimateHours }, away === null ? hold : 0);
+      }
       // a washing machine, or any appliance behind a plug that measures its power
       if ((dev.type === "washer" || dev.type === "plug") && st.run === "done") add(`laundry:${dev.id}`, "laundry", "yellow", where);
       if (dev.type === "leak" && st.leak) add(`leak:${dev.id}`, "leak", "red", where);
@@ -68,6 +78,15 @@ export function collect(s, rules = RULES, now = Date.now()) {
   const net = s.home && s.home.network;
   if (net && net.state && net.state !== "up") add("connection", "connection", "red", { since: net.since || null }, 1);
   return out;
+}
+
+/* For how many minutes nobody has been home, from the presence the Freebox gives:
+   false when someone is in or nobody is followed, null when nobody is in but no one was
+   ever seen. lastSeen is the last time a device of the person was on the network. Pure. */
+export function awayMinutes(presence, now = Date.now()) {
+  if (!presence || !presence.length || presence.some((p) => p.home)) return false;
+  const last = Math.max(0, ...presence.map((p) => p.lastSeen || 0));
+  return last ? Math.max(0, (now - last) / 60000) : null;
 }
 
 /* The alerts in progress among the candidates, and the memory to keep:
@@ -105,7 +124,7 @@ export function evaluate(candidates, memory = {}, now = Date.now(), rules = RULE
 export const worst = (list) => list.reduce((w, a) => RANK[a.severity] > (RANK[w] || 0) ? a.severity : w, null);
 
 /* ---------- Page ---------- */
-const KIND_ICON = { tempoRed: "bolt", incident: "alert", change: "signal", temp: "thermoUp", ssd: "disk", disk: "disk", battery: "battery", reboot: "restart", updates: "download", unreachable: "signalBroken", longOn: "flame", laundry: "washer", leak: "drop", connection: "signalBroken" };
+const KIND_ICON = { tempoRed: "bolt", incident: "alert", change: "signal", temp: "thermoUp", ssd: "disk", disk: "disk", battery: "battery", reboot: "restart", updates: "download", unreachable: "signalBroken", longOn: "flame", awayOn: "person", laundry: "washer", leak: "drop", connection: "signalBroken" };
 const iconOf = (a) => a.kind === "warning" ? alertIcon(a.type) : icon(KIND_ICON[a.kind] || "alert");
 const whenOf = (ts) => dayKey(new Date(ts)) === dayKey() ? fmtTime(ts) : fmtDate(ts, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 

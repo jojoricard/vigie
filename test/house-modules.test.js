@@ -51,7 +51,7 @@ test('freebox: the last outage is the latest "down" of the log and the "up" that
 });
 
 // A Freebox that answers the four questions the driver asks, and counts the logins.
-function fakeBox({ token = 'app-token', expire = false } = {}) {
+function fakeBox({ token = 'app-token', expire = false, connection = () => ({}) } = {}) {
   const seen = { logins: 0, calls: [] };
   let session = null, expired = expire;
   const fetchImpl = async (url, opts = {}) => {
@@ -66,7 +66,7 @@ function fakeBox({ token = 'app-token', expire = false } = {}) {
       return json({ success: true, result: { session_token: session } });
     }
     if (auth !== session || (expired && seen.logins < 2 && !(expired = false))) return json({ success: false, error_code: 'auth_required', msg: 'log in again' }, 403);
-    if (route === '/connection/') return json({ success: true, result: { state: 'up', media: 'ftth', rate_down: 125000, rate_up: 20000, bandwidth_down: 1e9, bandwidth_up: 7e8 } });
+    if (route === '/connection/') return json({ success: true, result: { state: 'up', media: 'ftth', rate_down: 125000, rate_up: 20000, bandwidth_down: 1e9, bandwidth_up: 7e8, ...connection() } });
     if (route === '/lan/browser/pub/') return json({ success: true, result: [{ primary_name: 'phone', l2ident: { id: '00:00:5E:00:53:01', type: 'mac_address' }, active: true, last_activity: 1,
       l3connectivities: [{ addr: '2001:db8::1', af: 'ipv6', active: true }, { addr: '192.0.2.50', af: 'ipv4', active: false }, { addr: '192.0.2.51', af: 'ipv4', active: true }] }] });
     if (route === '/connection/logs/') return json({ success: true, result: [{ type: 'conn', state: 'down', date: 100 }, { type: 'conn', state: 'up', date: 400 }] });
@@ -88,6 +88,36 @@ test('freebox: who is in and how the line is doing, with one login for many ques
   await driver.home();
   assert.equal(box.seen.logins, 1, 'the session is kept between two readings');
   assert.deepEqual(await driver.list(), [{ name: 'phone', mac: '00:00:5E:00:53:01', active: true, ip: '192.0.2.51' }], 'the list for the config gives the IPv4 address in use');
+});
+
+/* What a fibre Freebox answers on /connection/ (the fields of Freebox OS, the figures made
+   up): rate_* a reading of the moment in bytes a second, bandwidth_* in bits a second, and
+   bytes_* counted since the line came up. Here the PC pulls 1.8 MB/s while the moment's
+   reading, taken between two bursts, says 8.8 kB/s. */
+test('freebox: the rate of the line comes from its counters, read half a minute apart, in bytes a second', async () => {
+  const clock = { t: 1.8e12 }, counted = { down: 412_884_201_550, up: 38_115_002_118 };
+  const box = fakeBox({ connection: () => ({ type: 'ethernet', media: 'ftth', ipv4: '192.0.2.1', rate_down: 8792, rate_up: 4682,
+    bandwidth_down: 8_000_000_000, bandwidth_up: 8_000_000_000, bytes_down: counted.down, bytes_up: counted.up }) });
+  const driver = freebox.create({ appToken: 'app-token', fetchImpl: box.fetchImpl, now: () => clock.t });
+  let net = (await driver.home()).network;
+  assert.deepEqual([net.rateDown, net.rateUp], [8792, 4682], 'first reading: what the box reads at that moment');
+  clock.t += 30_000; counted.down += 54_000_000; counted.up += 2_400_000;
+  net = (await driver.home()).network;
+  assert.deepEqual([net.rateDown, net.rateUp], [1_800_000, 80_000], '54 MB in 30 s is 1.8 MB/s, as the network card of the PC says');
+  assert.equal(Math.round((net.rateDown * 8) / 1e6 * 10) / 10, 14.4, 'shown as 14.4 Mb/s');
+  assert.equal(net.bandwidthDown, 8e9, 'the bandwidth stays in bits a second');
+  // the line came up again: the counters start over, the moment's reading stands in
+  clock.t += 30_000; counted.down = 1_000; counted.up = 500;
+  net = (await driver.home()).network;
+  assert.deepEqual([net.rateDown, net.rateUp], [8792, 4682]);
+});
+
+test('freebox: the rate of the line, pure', () => {
+  const prev = { at: 0, down: 1000, up: 100 };
+  assert.deepEqual(freebox.lineRate(prev, { bytes_down: 61000, bytes_up: 700, rate_down: 5, rate_up: 6 }, 30000), { rateDown: 2000, rateUp: 20, counters: { at: 30000, down: 61000, up: 700 } });
+  assert.deepEqual(freebox.lineRate(prev, { rate_down: 5, rate_up: 6 }, 30000), { rateDown: 5, rateUp: 6, counters: null }, 'no counters: the moment');
+  assert.equal(freebox.lineRate(prev, { bytes_down: 61000, bytes_up: 700, rate_down: 5 }, 1000).rateDown, 5, 'too close to divide');
+  assert.equal(freebox.lineRate(prev, { bytes_down: 61000, bytes_up: 700, rate_down: 5 }, 3_600_000).rateDown, 5, 'an hour old: not what goes through now');
 });
 
 test('freebox: a session that ended is opened again, a box never paired says how to pair it', async () => {
