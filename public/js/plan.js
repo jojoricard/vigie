@@ -315,7 +315,8 @@ export const coverClosed = (state) => 1 - clamp(Number(state && state.position) 
    angle and the size of the card. azimuth turns around the vertical, elevation is 90
    degrees from above, zoom 1 is the fitted frame. A view marked `auto` has no angle
    of its own: it takes the one that shows the home largest on that screen. */
-export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.85, maxZoom: 6 };
+// zoomed out to the most, the home still covers FILL x minZoom of the side that limits it: 86 %
+export const LIMITS = { minElevation: 28 * DEG, maxElevation: 89.5 * DEG, minZoom: 0.92, maxZoom: 6 };
 export const FILL = 0.94;         // share of the picture the home takes: the pad under it reaches the edge
 const ROOM_FILL = 0.62;           // a framed room keeps its neighbors in sight
 const ISO = { azimuth: -35 * DEG, elevation: 50 * DEG };
@@ -326,7 +327,7 @@ const ISO_AZIMUTHS = [-35, -25, -15, -8, 0].map((d) => d * DEG), ISO_ELEVATIONS 
 export function presets(plan) {
   const rooms = {};
   for (const r of plan.rooms) rooms[r.id] = { subject: r.id, zoom: 1, auto: true, ...ISO };
-  return { iso: { subject: "plan", zoom: 1, auto: true, ...ISO }, top: { subject: "plan", zoom: 1, azimuth: 0, elevation: LIMITS.maxElevation }, rooms };
+  return { iso: { subject: "plan", zoom: 1, auto: true, ...ISO }, top: { subject: "plan", zoom: 1, auto: "top", azimuth: 0, elevation: LIMITS.maxElevation }, rooms };
 }
 
 // The extent of a set of points on screen, for a view angle.
@@ -356,6 +357,16 @@ export function modelAngle(plan, aspect) {
   return best;
 }
 
+/* From above, north up, unless a quarter turn stands a long home upright in a tall card
+   (or lying in a wide one) and shows it clearly larger: a home twice as wide as deep, seen
+   north up in a card twice as tall as wide, would fill a quarter of it. */
+export function topAngle(plan, aspect) {
+  const elevation = LIMITS.maxElevation;
+  const cover = (azimuth) => { const e = extent(subjectPoints(plan, "plan", azimuth, elevation), azimuth, elevation), fit = Math.max(e.height, e.width / aspect); return (e.height / fit) * (e.width / aspect / fit); };
+  const north = cover(0), turned = cover(Math.PI / 2);
+  return { azimuth: turned > north * 1.12 ? Math.PI / 2 : 0, elevation };
+}
+
 // The camera never dives under the walls, flips over, nor backs away from the plan.
 export function clampView(view) {
   return { ...view, elevation: clamp(view.elevation, LIMITS.minElevation, LIMITS.maxElevation), zoom: clamp(view.zoom ?? 1, LIMITS.minZoom, LIMITS.maxZoom) };
@@ -383,7 +394,7 @@ export function subjectPoints(plan, subject, azimuth, elevation) {
    point looked at, `height` the meters the picture shows from bottom to top. `pan` moves
    that point over the ground, in meters of the plan. */
 export function frameView(plan, view, aspect) {
-  const { azimuth, elevation } = view.auto ? modelAngle(plan, aspect) : view;
+  const { azimuth, elevation } = view.auto === "top" ? topAngle(plan, aspect) : view.auto ? modelAngle(plan, aspect) : view;
   const e = extent(subjectPoints(plan, view.subject, azimuth, elevation), azimuth, elevation);
   const cr = (e.minR + e.maxR) / 2, cu = (e.minU + e.maxU) / 2, pan = view.pan || [0, 0];
   const fill = plan.rooms.some((r) => r.id === view.subject) ? ROOM_FILL : FILL;
@@ -394,22 +405,10 @@ export function frameView(plan, view, aspect) {
   };
 }
 
-/* The share of the picture the home takes in a view, across (w) and up (h), and the
-   height a picture of the given width needs for the home to touch both sides at once
-   (FILL of each). The angle of an automatic view depends on the aspect, so the height
-   is looked for from the tallest picture the card could have down to the one it fits. */
+// The share of the picture the home takes in a view, across (w) and up (h).
 export function homeShare(plan, view, aspect) {
   const f = frameView(plan, view, aspect), e = extent(subjectPoints(plan, view.subject, f.azimuth, f.elevation), f.azimuth, f.elevation);
   return { w: e.width / (f.height * aspect), h: e.height / f.height };
-}
-export function naturalHeight(plan, view, width, tallest) {
-  const still = { ...view, zoom: 1, pan: [0, 0] };
-  let h = tallest;
-  for (let i = 0; i < 4; i++) {
-    const s = homeShare(plan, still, width / h);
-    h = Math.min(tallest, h * s.h / s.w);      // the home's own shape at this angle
-  }
-  return Math.round(h);
 }
 
 /* ---------- Moving by hand ----------

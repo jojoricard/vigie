@@ -8,7 +8,7 @@
    shown where they are (plan.js, plan3d.js). The tiles stay the main control, and the
    whole tab fits the screen like the others (fit.js): the plan keeps its half, the tiles
    tighten when many, then go to a second page of tiles rather than scroll. */
-import { $, state, esc, load, cssColor } from "./core.js";
+import { $, state, esc, load, cssColor, put } from "./core.js";
 import { fitBox, fitRows, queueFit } from "./fit.js";
 import { openPanel, drawPanel, closePanel, panelEl, panelIs } from "./panel.js";
 import { moduleFor, placedDevices, planSvg } from "./plan.js";
@@ -121,11 +121,11 @@ function drawHome() {
       : p.kind === "tv" ? (p.on ? esc(p.app || t("house.isOn")) : t("house.isOff"))
         : t("home.covers", p.open, p.of);
   $("homeCard").hidden = !lines.length && !people.length;
-  $("homeMeta").innerHTML = people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join("");
-  $("homeList").innerHTML = lines.map((r) => `<div class="roomLine"><span class="rn">${esc(r.room)}${r.temperature != null ? `<small class="num">${degrees(r.temperature)}</small>` : ""}</span>
-    <span class="rp">${r.parts.map((p) => `<span class="bullet${p.on ? " on" : ""}">${icon(p.kind === "climate" && p.on ? MODE_ICON[p.mode] || p.icon : p.icon)}<span>${words(p)}</span></span>`).join("")}</span></div>`).join("");
+  put($("homeMeta"), people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join(""));
+  put($("homeList"), lines.map((r) => `<div class="roomLine"><span class="rn">${esc(r.room)}${r.temperature != null ? `<small class="num">${degrees(r.temperature)}</small>` : ""}</span>
+    <span class="rp">${r.parts.map((p) => `<span class="bullet${p.on ? " on" : ""}">${icon(p.kind === "climate" && p.on ? MODE_ICON[p.mode] || p.icon : p.icon)}<span>${words(p)}</span></span>`).join("")}</span></div>`).join(""));
   $("homeScenes").hidden = !(scenes && scenes.length);
-  $("homeScenes").innerHTML = sceneBar();
+  put($("homeScenes"), sceneBar());
 }
 
 let modules = null;                    // the integrations of the service and their state, for the Modules panel
@@ -675,6 +675,15 @@ function sunNow() {
   return home ? solarPosition(Math.floor(Date.now() / QUARTER) * QUARTER, home.lat, home.lon) : null;
 }
 
+// Moved by hand, the model shows neither the model view nor the view from above: no
+// button stays lit on a picture it no longer describes, until one is chosen or recentered.
+let planMoved = false;
+function markMoved(moved) {
+  planMoved = moved;
+  $("planRecenter").hidden = !moved;
+  for (const b of $("planViews").querySelectorAll("[data-view]")) b.classList.toggle("on", !moved && b.dataset.view === planShown);
+}
+
 // A second tap on the framed room, or a tap outside the plan, goes back to the whole.
 function showPlan(name) {
   if (name in VIEW_NAME) planOverview = name;
@@ -710,12 +719,12 @@ function drawPlan() {
       temperatures: Object.fromEntries(rooms.map((r) => [r.id, r.temperature])),
     });
   } else if (planView) planView.update(rooms);
-  else if (!planLoading) {
-    // three.js is only fetched once there is a plan to draw
+  else if (!planLoading && !$("tabHouse").hidden) {
+    // three.js is only fetched once there is a plan to draw, and the tab shows it
     planLoading = true;
     import("./plan3d.js").then(({ createPlan3d }) => {
       planLoading = false;
-      planView = createPlan3d(stage, plan, { css: cssColor, lampColor, pin: pinOf, roomLabel, sun: sunNow, onDevice: openDetail, onRoom: showPlan, onHover: point, onMoved: (moved) => { $("planRecenter").hidden = !moved; } });
+      planView = createPlan3d(stage, plan, { css: cssColor, lampColor, pin: pinOf, roomLabel, sun: sunNow, onDevice: openDetail, onRoom: showPlan, onHover: point, onMoved: markMoved });
       if (planView) planView.show(planShown);
       else noWebgl = true;      // no WebGL context: the flat view, for good
       render();
@@ -730,8 +739,8 @@ function drawPlan() {
   if (!recenter.firstChild) recenter.innerHTML = icon("center");
   recenter.title = t("plan.recenter");
   recenter.setAttribute("aria-label", t("plan.recenter"));
-  $("planViews").innerHTML = Object.keys(VIEW_NAME).map((v) => `<button type="button" class="${planShown === v ? "on" : ""}" data-view="${v}">${VIEW_NAME[v]()}</button>`).join("");
-  $("planRooms").innerHTML = namedRooms().map((p) => `<button type="button" class="chip${planShown === p.id ? " on" : ""}" data-room="${esc(p.id)}">${esc(p.name)}</button>`).join("");
+  put($("planViews"), Object.keys(VIEW_NAME).map((v) => `<button type="button" class="${planShown === v && !planMoved ? "on" : ""}" data-view="${v}">${VIEW_NAME[v]()}</button>`).join(""));
+  put($("planRooms"), namedRooms().map((p) => `<button type="button" class="chip${planShown === p.id ? " on" : ""}" data-room="${esc(p.id)}">${esc(p.name)}</button>`).join(""));
   const ignored = (plan.warnings || []).length;
   $("planNote").hidden = !ignored;
   $("planNote").textContent = ignored ? t("plan.ignored", ignored) : "";
@@ -744,26 +753,15 @@ function drawPlan() {
    down, it has the left column. The tiles pick their look from the room they are given
    (tileLayout): small cards, rows, tight rows. When even tight rows do not fit, the grid
    keeps whole rows and the others wait on its next page. */
+// The plan gets the room the layout leaves it, and keeps it whatever the camera does: it
+// is the camera that frames the home in it, never the card that follows the home.
 function sizeHouse() {
-  const pane = $("tabHouse"), card = $("planCard"), stage = $("planStage");
+  const pane = $("tabHouse");
   if (pane.hidden) return;
-  // never taller than the home needs at this width: the rest goes to the tiles or between the
-  // blocks, not into empty bands above and below the model
-  const chrome = card.offsetHeight - stage.clientHeight, tallest = pane.clientHeight - chrome;
-  const natural = stage.clientWidth > 0 && plan ? planHeightFor(stage, tallest) : null;
-  const hmax = natural ? Math.max(Number(card.dataset.hmin) || 240, chrome + natural) : null;
-  const hn = Math.round(pane.clientHeight * 0.5);
-  const before = card.dataset.hmax;
-  card.dataset.hn = hmax ? Math.min(hn, hmax) : hn;
-  if (hmax) card.dataset.hmax = hmax; else delete card.dataset.hmax;
-  return before !== card.dataset.hmax;
+  $("planCard").dataset.hn = Math.round(pane.clientHeight * 0.5);
 }
-// The height the model (or the flat plan) needs to fill the width of the stage.
-function planHeightFor(stage, tallest) {
-  if (planView && planView.naturalHeight) return planView.naturalHeight(stage.clientWidth, tallest);
-  const svg = stage.querySelector("svg"), box = svg && svg.viewBox && svg.viewBox.baseVal;
-  return box && box.width ? Math.min(tallest, Math.round(stage.clientWidth * box.height / box.width)) : null;
-}
+// A turn by hand of the model (scripts/check-scroll.js).
+export const spinPlan = (dx) => { if (planView && planView.spin) planView.spin(dx); };
 // What the home covers of the plan, across and up (scripts/check-scroll.js).
 export function planShare() {
   const stage = $("planStage");
@@ -823,9 +821,9 @@ async function openModules() {
 function drawBar() {
   const people = (state.home && state.home.presence) || [];
   $("presence").hidden = !people.length;
-  $("presence").innerHTML = people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join("");
+  put($("presence"), people.map((p) => `<span class="person${p.home ? " home" : ""}" title="${p.home ? t("home.in") : t("home.out")}">${icon("person")}${esc(p.name)}</span>`).join(""));
   $("sceneBar").hidden = !(scenes && scenes.length);
-  $("sceneBar").innerHTML = sceneBar();
+  put($("sceneBar"), sceneBar());
   $("houseBar").hidden = !rooms.length;
 }
 
@@ -835,7 +833,7 @@ function render() {
   drawBar();
   // with a room framed on the plan, its tiles stand out from the others
   const framed = plan && plan.rooms.some((r) => r.id === planShown) ? planShown : null;
-  $("tileGrid").innerHTML = rooms.flatMap((r) => r.devices).map(tileHtml).join("");
+  put($("tileGrid"), rooms.flatMap((r) => r.devices).map(tileHtml).join(""));
   for (const el of $("tileGrid").children) {
     el.classList.toggle("away", !!framed && el.dataset.room !== framed);
     el.classList.toggle("hl", el.dataset.device === pointed);
@@ -847,7 +845,19 @@ function render() {
   if (panelIs("device")) { if (findDevice(detailId)) drawPanel(); else closePanel(); }
 }
 
-export function houseTabShown() { render(); }
+export function houseTabShown() { clearTimeout(freeTimer); freeTimer = 0; render(); }
+/* Away from the tab for ten minutes, the model is let go (its scene, its buffers, its
+   textures on the graphics card) and built again on the way back, in a second or so. */
+const FREE_AFTER = 10 * 60 * 1000;
+let freeTimer = 0;
+export function houseTabLeft() {
+  if (freeTimer || !planView) return;
+  freeTimer = setTimeout(() => {
+    freeTimer = 0;
+    if (!$("tabHouse").hidden || !planView) return;
+    planView.dispose(); planView = null;
+  }, FREE_AFTER);
+}
 // For the captures (scripts/): the model seen from an angle given in degrees, or framed on a room.
 export function lookAtPlan(azimuth, elevation, zoom = 1, subject = "plan") {
   if (planView) planView.look({ subject, azimuth: azimuth * Math.PI / 180, elevation: elevation * Math.PI / 180, zoom });
@@ -924,7 +934,7 @@ function wire() {
   // crossing the width under which the model gives way to the flat view
   matchMedia(NARROW).addEventListener("change", render);
   addEventListener("resize", sizeHouse);
-  tab.addEventListener("fit", () => { lookOfTiles(); if (sizeHouse()) queueFit(); });      // the width of the plan is only known once placed
+  tab.addEventListener("fit", lookOfTiles);
   $("modulesBtn").dataset.panel = "modules";
 
   detailEl.addEventListener("click", (e) => {

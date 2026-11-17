@@ -5,7 +5,7 @@
    night screen and the briefing. An acknowledged alert stays quiet until it gets worse
    (a higher severity, a lower battery, less free space...), until a day has passed, or
    until its condition has gone for a while and come back. collect() and evaluate() are pure. */
-import { $, LS, state, esc, DAY_MS } from "./core.js";
+import { $, LS, state, esc, DAY_MS, put } from "./core.js";
 import { t, fmtTime, fmtDate, dayKey } from "./i18n.js";
 import { icon, alertIcon } from "./icons.js";
 import { changeText } from "./machine.js";
@@ -144,12 +144,12 @@ function render() {
   const list = state.notices, band = $("alertBand");
   band.hidden = !list.length;
   band.dataset.sev = worst(list) || "";
-  $("alertRows").innerHTML = list.map((a) => {
+  put($("alertRows"), list.map((a) => {
     const x = alertText(a);
     return `<div class="alertRow ${a.severity}">${iconOf(a)}
       <div class="tx"><div class="tt">${esc(x.title)}</div><div class="dd">${[esc(x.detail), t("notice.since", whenOf(a.since))].filter(Boolean).join(" · ")}</div></div>
       <button type="button" class="chip" data-ack="${esc(a.id)}">${t("notice.ack")}</button></div>`;
-  }).join("");
+  }).join(""));
   // told only when the alerts change: this runs after every refresh, every few seconds
   const now = list.map((a) => `${a.id}:${a.severity}`).join("|");
   if (now === told) return;

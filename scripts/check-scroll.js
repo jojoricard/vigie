@@ -59,17 +59,10 @@ const FIND = `(() => {
     const empty = box.bottom - bottom - parseFloat(getComputedStyle(card).paddingBottom || 0);
     if (empty > 0.15 * screen) bad.push(where(card) + ": " + Math.round(empty) + " px of the card are empty (" + Math.round((empty / screen) * 100) + " % of the screen)");
   }
-  // The plan of the home: the home covers at least 85 % of the side that limits it, and a
-  // plan limited by its width keeps no empty bands above and below it taller than 15 % of
-  // the screen (the card is given the height the home needs, no more). A plan squeezed by
-  // the height of a small screen has bands on its sides: they cannot go anywhere else.
+  // The plan of the home: the home covers at least 85 % of the side of its card that limits it.
   const share = window.vigie.planShare && window.vigie.planShare();
   const stage = document.getElementById("planStage");
-  if (share && stage && stage.offsetParent) {
-    const most = Math.max(share.w, share.h), band = share.w >= share.h ? (1 - share.h) * stage.clientHeight : 0;
-    if (most < 0.85) bad.push("#planStage: the home covers " + Math.round(most * 100) + " % of the side that limits it");
-    if (band > 0.15 * screen) bad.push("#planStage: " + Math.round(band) + " px of the plan are empty above and below the home (" + Math.round((band / screen) * 100) + " % of the screen)");
-  }
+  if (share && stage && stage.offsetParent && Math.max(share.w, share.h) < 0.85) bad.push("#planStage: the home covers " + Math.round(Math.max(share.w, share.h) * 100) + " % of the side that limits it");
   // On the Overview the gaps between the blocks one sees are the same everywhere: a bare
   // block counts from its content, not from its box.
   const overview = document.getElementById("tabOverview");
@@ -100,6 +93,32 @@ const FIND = `(() => {
   return bad;
 })()`;
 
+/* The plan of the House tab keeps its size whatever the camera does: for the model view
+   and the view from above, the card and the tiles are where they were after a turn by
+   hand, the home covers 85 % of the side of the card that limits it before and after,
+   and the button of the view is lit before the turn and none after it. */
+const TURN = `(async () => {
+  const bad = [], wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const card = document.getElementById("planCard"), tiles = document.getElementById("tilesBlock"), views = document.getElementById("planViews");
+  if (!card || card.hidden || !card.offsetParent || !views || views.hidden || !window.vigie.planShare()) return bad;
+  const where = () => [card, tiles].map((el) => { const r = el.getBoundingClientRect(); return [r.top, r.height, r.width].map(Math.round).join(","); }).join(" ");
+  for (const name of ["iso", "top"]) {
+    views.querySelector('[data-view="' + name + '"]').click();
+    await wait(900);
+    const before = where(), s0 = window.vigie.planShare(), lit0 = [...views.querySelectorAll(".on")].map((b) => b.dataset.view).join();
+    window.vigie.planSpin(260);
+    await wait(900);
+    const after = where(), s1 = window.vigie.planShare(), lit1 = [...views.querySelectorAll(".on")].map((b) => b.dataset.view).join();
+    if (before !== after) bad.push("#planCard (" + name + "): the card or the tiles moved with a turn of the model, " + before + " then " + after);
+    for (const [when, s] of [["before", s0], ["after", s1]]) if (Math.max(s.w, s.h) < 0.85) bad.push("#planStage (" + name + "): the home covers " + Math.round(Math.max(s.w, s.h) * 100) + " % of the side that limits it " + when + " a turn");
+    if (lit0 !== name) bad.push("#planViews: " + (lit0 || "no button") + " lit on the " + name + " view");
+    if (lit1) bad.push("#planViews: " + lit1 + " still lit after a turn by hand");
+  }
+  views.querySelector('[data-view="iso"]').click();
+  await wait(300);
+  return bad;
+})()`;
+
 async function checkSize(page, url, label, [width, height, scale = 1]) {
   await page.size(width, height, scale);
   await page.goto(url);
@@ -123,6 +142,7 @@ async function checkSize(page, url, label, [width, height, scale = 1]) {
       await pages(view === 'main' ? tab : `${tab}/${view}`);
     }
     await page.evaluate('window.vigie.view("main")');
+    if (tab === 'house') for (const b of await page.evaluate(TURN)) failures.push(`${label} · house · ${b}`);
     const panels = [...(await page.evaluate('window.vigie.panels()')), ...(tab === 'house' ? await page.evaluate('window.vigie.devices()') : [])];
     for (const panel of panels) {
       await page.evaluate(`window.vigie.open(${JSON.stringify(panel)})`);

@@ -1,7 +1,7 @@
 /* Weather: the Overview card, the Weather tab with its radar and snow sub-views, air
    quality, pollen and warnings. The page calls Open-Meteo directly, with timezone=auto
    so the hourly series follow each city's local time. */
-import { $, LS, state, esc, small, readout, load, COL } from "./core.js";
+import { $, LS, state, esc, small, readout, load, COL, put } from "./core.js";
 import { t, dec, nb, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { weatherIcon, moonIcon, icon, alertIcon } from "./icons.js";
 import { fitBox, queueFit } from "./fit.js";
@@ -72,12 +72,12 @@ function renderWeather() {
   if (!w || !w.current) return;
   const cur = w.current, d = w.daily;
   state.curCode = cur.weather_code; state.curIsDay = cur.is_day;
-  $("wxIcon").innerHTML = weatherIcon(cur.weather_code, cur.is_day);
+  put($("wxIcon"), weatherIcon(cur.weather_code, cur.is_day));
   $("wxTemp").textContent = Math.round(cur.temperature_2m) + "°";
   $("wxDesc").textContent = wmoLabel(cur.weather_code);
   const mp = moonPhase();
-  $("wxSub").innerHTML = (d ? `<span>${t("wx.max")} <b>${Math.round(d.temperature_2m_max[0])}°</b></span><span>${t("wx.min")} <b>${Math.round(d.temperature_2m_min[0])}°</b></span>` : "")
-    + `<span>${t("wx.feels")} <b>${Math.round(cur.apparent_temperature)}°</b></span><span title="${mp.name} · ${mp.illum} %">${moonIcon(mp.p)}</span><span id="wxNormal"></span>`;
+  put($("wxSub"), (d ? `<span>${t("wx.max")} <b>${Math.round(d.temperature_2m_max[0])}°</b></span><span>${t("wx.min")} <b>${Math.round(d.temperature_2m_min[0])}°</b></span>` : "")
+    + `<span>${t("wx.feels")} <b>${Math.round(cur.apparent_temperature)}°</b></span><span title="${mp.name} · ${mp.illum} %">${moonIcon(mp.p)}</span><span id="wxNormal"></span>`);
   renderOverviewWeather(); renderForecast(w); updateSky(); startAnim(); renderNormal(); renderWeatherTab();
 }
 
@@ -126,7 +126,7 @@ function renderForecast(w) {
   const days = [1, 2, 3, 4, 5];
   const lo = Math.min(...days.map((i) => d.temperature_2m_min[i])), hi = Math.max(...days.map((i) => d.temperature_2m_max[i]));
   const pos = (v) => ((v - lo) / Math.max(1, hi - lo)) * 100;
-  $("forecast").innerHTML = days.map((i) => {
+  put($("forecast"), days.map((i) => {
     const mn = d.temperature_2m_min[i], mx = d.temperature_2m_max[i], pp = d.precipitation_probability_max[i];
     return `<div class="fcRow">
       <span class="d">${fmtDate(d.time[i] + "T12:00:00", { weekday: "short" })}</span>
@@ -136,7 +136,7 @@ function renderForecast(w) {
       <span class="track"><i style="left:${pos(mn)}%;width:${pos(mx) - pos(mn)}%"></i></span>
       <span class="mx num">${Math.round(mx)}°</span>
     </div>`;
-  }).join("");
+  }).join(""));
 }
 
 // The same selector on the Overview and in the Weather tab: one selected city for the whole page.
@@ -192,7 +192,7 @@ export function setWeatherView(v) {
   placeRadar();
 }
 function renderViewButtons() {
-  $("mtViews").innerHTML = `<button type="button" class="chip" data-wx-view="radar">${t("card.radar")}</button>`;
+  put($("mtViews"), `<button type="button" class="chip" data-wx-view="radar">${t("card.radar")}</button>`);
   if (!$("tabWeather")._placed) { $("tabWeather")._placed = true; $("tabWeather").addEventListener("fit", placeRadar); }
   $("tabWeather").onclick = (e) => { const b = e.target.closest("[data-wx-view]"); if (b) setWeatherView(b.dataset.wxView); };
 }
@@ -201,11 +201,11 @@ function renderWeatherTab() {
   renderViewButtons();
   renderWarningsDetail();
   const w = state.weather[state.sel];
-  if (!w || !w.current) { $("mtNow").innerHTML = `<div class="err">${t("wx.unavailable")}</div>`; return; }
+  if (!w || !w.current) { put($("mtNow"), `<div class="err">${t("wx.unavailable")}</div>`); return; }
   const cur = w.current, d = w.daily, h = w.hourly;
   const arrow = `<span class="windArrow" style="display:inline-block;transform:rotate(${(cur.wind_direction_10m + 180) % 360}deg)">${icon("arrow")}</span>`;
   const rain = d && d.precipitation_sum ? d.precipitation_sum[0] : null;
-  $("mtNow").innerHTML = `<div class="wxNow"><div class="wxIcon">${weatherIcon(cur.weather_code, cur.is_day)}</div><div class="wxTemp num">${Math.round(cur.temperature_2m)}°</div>
+  put($("mtNow"), `<div class="wxNow"><div class="wxIcon">${weatherIcon(cur.weather_code, cur.is_day)}</div><div class="wxTemp num">${Math.round(cur.temperature_2m)}°</div>
       <div><div class="wxDesc">${wmoLabel(cur.weather_code)}</div><div class="wxSub">${d ? `<span>${t("wx.max")} <b>${Math.round(d.temperature_2m_max[0])}°</b></span><span>${t("wx.min")} <b>${Math.round(d.temperature_2m_min[0])}°</b></span>` : ""}</div></div></div>
     <div class="readouts">${[
       readout(t("wx.feels"), `${Math.round(cur.apparent_temperature)}°`),
@@ -213,10 +213,10 @@ function renderWeatherTab() {
       readout(t("wx.wind"), `${Math.round(cur.wind_speed_10m)}${small("km/h")}${arrow}`),
       readout(t("wx.gustsLabel"), `${Math.round(cur.wind_gusts_10m)}${small("km/h")}`),
       readout(t("wx.rainToday"), rain > 0 ? `${dec(rain)}${small("mm")}` : `<span class="word">${t("wx.none")}</span>`),
-    ].join("")}</div>`;
+    ].join("")}</div>`);
   renderTiles();
   refreshPressure();
-  if (!h || !h.time) { $("mtHours").innerHTML = `<div class="err">${t("hourly.unavailable")}</div>`; return; }
+  if (!h || !h.time) { put($("mtHours"), `<div class="err">${t("hourly.unavailable")}</div>`); return; }
   const cityName = state.cities[state.sel].short;
 
   // --- 48 h, in as many columns as the card is wide: every 3 hours, or more when it is narrow
@@ -226,7 +226,7 @@ function renderWeatherTab() {
   for (let i = k0; i < Math.min(h.time.length, k0 + 48) && cols.length < count; i += every) cols.push(i);
   const pmax = Math.max(...cols.map((i) => h.precipitation[i] || 0), 0.5);
   $("mtHourMeta").textContent = cityName;
-  $("mtHours").innerHTML = `<div class="mtHourRow">${cols.map((i) => {
+  put($("mtHours"), `<div class="mtHourRow">${cols.map((i) => {
     const hour = Number(h.time[i].slice(11, 13));
     const mm = h.precipitation[i] || 0;
     return `<div class="mtH">
@@ -237,7 +237,7 @@ function renderWeatherTab() {
       <div class="pp num${h.precipitation_probability[i] >= 40 ? " on" : ""}">${h.precipitation_probability[i]} %</div>
       <div class="vt num">${Math.round(h.wind_speed_10m[i])}</div>
     </div>`;
-  }).join("")}</div>`;
+  }).join("")}</div>`);
 
   // the same 48 hours as a curve: temperature, rain as bars, wind as a dashed line
   const span = [];
@@ -248,13 +248,13 @@ function renderWeatherTab() {
     const H = 170, x = (n) => (n / (span.length - 1)) * 1000, line = (vals, f) => vals.map((v, n) => `${n ? "L" : "M"}${x(n).toFixed(1)} ${f(v).toFixed(1)}`).join("");
     const tp = line(temps, (v) => 10 + (1 - (v - lo) / range) * (H - 60));
     const label = (i) => { const d = new Date(h.time[i]); return `${fmtDate(d, { weekday: "short" })} ${t("hourFmt", d.getHours())}`; };
-    $("mtCurve").innerHTML = `<div class="plot"><div class="chartSide"><span class="num">${Math.round(hi)}°</span><span class="num">${Math.round(lo)}°</span></div>
+    put($("mtCurve"), `<div class="plot"><div class="chartSide"><span class="num">${Math.round(hi)}°</span><span class="num">${Math.round(lo)}°</span></div>
       <svg class="chart" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" style="height:${H}px" aria-hidden="true">
         ${span.map((i, n) => { const mm = h.precipitation[i] || 0; return mm > 0 ? `<rect x="${(x(n) - 7).toFixed(1)}" y="${(H - (mm / rmax) * 46).toFixed(1)}" width="14" height="${((mm / rmax) * 46).toFixed(1)}" fill="var(--sky)" opacity=".75"/>` : ""; }).join("")}
         <path d="${line(winds, (v) => H - 4 - (v / wmax) * 40)}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"/>
         <path d="${tp}L1000 ${H}L0 ${H}Z" fill="var(--accent)" opacity=".10"/><path d="${tp}" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg></div>
       <div class="chartFeet"><span>${label(span[0])}</span><span>${label(span[Math.floor(span.length / 2)])}</span><span>${label(span[span.length - 1])}</span></div>
-      <div class="chartLegend"><span><i></i>${t("curve.temp")}</span><span><i style="background:var(--sky)"></i>${t("curve.rain", dec(rmax, 1))}</span><span><i style="background:var(--ink-3)"></i>${t("curve.wind", Math.round(wmax))}</span></div>`;
+      <div class="chartLegend"><span><i></i>${t("curve.temp")}</span><span><i style="background:var(--sky)"></i>${t("curve.rain", dec(rmax, 1))}</span><span><i style="background:var(--ink-3)"></i>${t("curve.wind", Math.round(wmax))}</span></div>`);
   }
 
   // --- 7 days, with the fields the Overview leaves out. Rows of a list: on a short screen
@@ -275,15 +275,15 @@ function renderWeatherTab() {
       <span class="r num c7">${hm(d.sunrise[i])} / ${hm(d.sunset[i])}</span>
     </div>`);
   }
-  $("mtWeek").innerHTML = rows.join("");
+  put($("mtWeek"), rows.join(""));
   // the week as two lines, the lows and the highs, the band between them filled
   const n = d.time.length, mins = d.temperature_2m_min, maxs = d.temperature_2m_max, wlo = Math.min(...mins), whi = Math.max(...maxs), wr = whi - wlo || 1, WH = 110;
   const wx = (i) => 40 + (i / (n - 1)) * 920, wy = (v) => 22 + (1 - (v - wlo) / wr) * (WH - 44);
   const path = (vals) => vals.map((v, i) => `${i ? "L" : "M"}${wx(i).toFixed(1)} ${wy(v).toFixed(1)}`).join("");
-  $("mtWeekCurve").innerHTML = `<svg class="chart" viewBox="0 0 1000 ${WH}" preserveAspectRatio="none" style="height:${WH}px" aria-hidden="true">
+  put($("mtWeekCurve"), `<svg class="chart" viewBox="0 0 1000 ${WH}" preserveAspectRatio="none" style="height:${WH}px" aria-hidden="true">
       <path d="${path(maxs)}${[...mins].map((v, i) => [i, v]).reverse().map(([i, v]) => `L${wx(i).toFixed(1)} ${wy(v).toFixed(1)}`).join("")}Z" fill="var(--accent)" opacity=".12"/>
       <path d="${path(maxs)}" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/><path d="${path(mins)}" fill="none" stroke="var(--ink-3)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
-    <div class="weekFeet">${d.time.map((day, i) => `<span><b class="num">${Math.round(maxs[i])}°</b><small class="num">${Math.round(mins[i])}°</small><em>${i === 0 ? t("today") : fmtDate(day + "T12:00:00", { weekday: "short" })}</em></span>`).join("")}</div>`;
+    <div class="weekFeet">${d.time.map((day, i) => `<span><b class="num">${Math.round(maxs[i])}°</b><small class="num">${Math.round(mins[i])}°</small><em>${i === 0 ? t("today") : fmtDate(day + "T12:00:00", { weekday: "short" })}</em></span>`).join("")}</div>`);
 }
 
 /* The row of tiles under the forecasts: air, pollen, UV and pressure of the selected
@@ -300,11 +300,11 @@ function renderTiles() {
     out.push(top ? tile(t("pollen.line"), pollenLevel(top.v)[0], pollenName(top.k), ` style="color:${pollenLevel(top.v)[1]}"`) : tile(t("pollen.line"), "–", t("pollen.noneNow")));
   }
   if (w && w.hourly && w.daily) out.push(tile(t("wx.uv"), dec(w.hourly.uv_index[hourIndex(w.hourly.time)] || 0, 1), t("wx.uvOf", dec(w.daily.uv_index_max[0], 1))));
-  $("mtTiles").innerHTML = out.join("") + pressureTile;
+  put($("mtTiles"), out.join("") + pressureTile);
   // rich look: each pollutant with its figure, each pollen around with its level
   const kv = (k, v) => `<div><span class="k">${k}</span><span class="v num">${v}</span></div>`, ug = (v) => `${Math.round(v)} µg/m³`;
-  $("mtAirMore").innerHTML = !air ? "" : [["PM2.5", air.pm2_5], ["PM10", air.pm10], ["NO₂", air.nitrogen_dioxide], ["O₃", air.ozone]].filter(([, v]) => v != null).map(([k, v]) => kv(k, ug(v))).join("")
-    + POLLENS.filter((k) => air[k] >= 1).map((k) => kv(pollenName(k), `<span style="color:${pollenLevel(air[k])[1]}">${pollenLevel(air[k])[0]}</span>`)).join("");
+  put($("mtAirMore"), !air ? "" : [["PM2.5", air.pm2_5], ["PM10", air.pm10], ["NO₂", air.nitrogen_dioxide], ["O₃", air.ozone]].filter(([, v]) => v != null).map(([k, v]) => kv(k, ug(v))).join("")
+    + POLLENS.filter((k) => air[k] >= 1).map((k) => kv(pollenName(k), `<span style="color:${pollenLevel(air[k])[1]}">${pollenLevel(air[k])[0]}</span>`)).join(""));
   $("mtAirMeta").textContent = air && state.cities[state.sel] ? state.cities[state.sel].short : "";
   $("mtTilesBlock").toggleAttribute("data-rich", !!air);
 }
@@ -329,10 +329,10 @@ export async function refreshAlerts() {
 function renderWarningsDetail() {
   const al = state.alerts;
   $("mtAlertCard").hidden = !al.length;
-  $("mtAlerts").innerHTML = al.map((a) => `<div class="chgLine">
+  put($("mtAlerts"), al.map((a) => `<div class="chgLine">
       <span class="t"><span class="pill ${a.severity}">${alertIcon(a.type)}${t("alert." + a.type)}</span></span>
       <span class="d">${t("warn.line", esc(a.area), t("sev." + a.severity))}${a.expires ? ` · ${alertUntil(a.expires)}` : ""}${a.description ? `<span class="warnDesc x2" data-clip>${esc(a.description)}</span>` : ""}</span>
-    </div>`).join("");
+    </div>`).join(""));
 }
 
 /* ================= Rain radar (sub-view of the Weather tab) =================
@@ -610,17 +610,33 @@ export async function refreshSnow() {
   </div>`).join("");
 }
 
-/* ================= Weather animations (rain / snow) ================= */
-let animRAF = null;
+/* ================= Weather animations (rain / snow) =================
+   A few drops over the weather card, at 15 images a second: enough for rain, a quarter of
+   what the screen would draw. Only while it can be seen and looked at: not on another tab,
+   not with the window in the background (the kiosk, while one works on the other screen),
+   not at night, never when the system asks for less motion. */
+const ANIM_FPS = 15;
+let animRAF = null, animTimer = 0;
+const stillMotion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : { matches: true, addEventListener() {} };
+function stopAnim() { cancelAnimationFrame(animRAF); clearTimeout(animTimer); animRAF = null; animTimer = 0; }
+let animWired = false;
+function wireAnim() {
+  if (animWired) return;
+  animWired = true;
+  for (const [target, type] of [[window, "focus"], [window, "blur"], [document, "visibilitychange"]]) target.addEventListener(type, () => startAnim());
+  stillMotion.addEventListener("change", () => startAnim());
+}
 export function startAnim() {
+  wireAnim();
   const c = state.curCode;
   const rain = isRainy(c), snow = isSnowy(c);
   const cv = $("wxAnim");
-  cancelAnimationFrame(animRAF);
+  stopAnim();
   const ctx = cv.getContext("2d");
-  if (!rain && !snow) { ctx.clearRect(0, 0, cv.width, cv.height); return; }
   const card = $("wxCard");
-  if ($("tabOverview").hidden || !card.clientWidth) return;
+  const wanted = (rain || snow) && !$("tabOverview").hidden && card.clientWidth && !document.hidden && document.hasFocus()
+    && !document.getElementById("nightVeil") && !stillMotion.matches;
+  if (!wanted) { ctx.clearRect(0, 0, cv.width, cv.height); return; }
   cv.width = card.clientWidth; cv.height = card.clientHeight;
   const particles = Array.from({ length: rain ? 60 : 40 }, () => ({
     x: Math.random() * cv.width, y: Math.random() * cv.height,
@@ -628,24 +644,25 @@ export function startAnim() {
     l: rain ? 8 + Math.random() * 10 : 1.5 + Math.random() * 2,
     drift: (Math.random() - 0.5) * (snow ? 0.6 : 0.15),
   }));
-  // v and drift are speeds per frame at 60 Hz: without scaling by elapsed time, rain
-  // would fall 2.4 times faster on a 144 Hz screen.
+  // v and drift are speeds per frame at 60 Hz, scaled by the time elapsed
   let lastT = null;
   const step = (ts) => {
-    const k = lastT != null ? Math.min(ts - lastT, 100) / (1000 / 60) : 1;
+    animRAF = null;
+    const k = lastT != null ? Math.min(ts - lastT, 200) / (1000 / 60) : 1;
     lastT = ts;
     ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.strokeStyle = "rgba(160,200,255,.35)"; ctx.fillStyle = "rgba(230,240,255,.5)"; ctx.lineWidth = 1;
+    ctx.beginPath();
     for (const p of particles) {
-      ctx.beginPath();
-      if (rain) { ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.drift * 4, p.y + p.l); ctx.stroke(); }
-      else { ctx.arc(p.x, p.y, p.l, 0, 7); ctx.fill(); }
+      if (rain) { ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.drift * 4, p.y + p.l); }
+      else { ctx.moveTo(p.x + p.l, p.y); ctx.arc(p.x, p.y, p.l, 0, 7); }
       p.y += p.v * k; p.x += p.drift * k;
       if (p.y > cv.height) { p.y = -10; p.x = Math.random() * cv.width; }
       if (p.x > cv.width) p.x = 0;
       if (p.x < 0) p.x = cv.width;
     }
-    animRAF = requestAnimationFrame(step);
+    if (rain) ctx.stroke(); else ctx.fill();
+    animTimer = setTimeout(() => { animTimer = 0; animRAF = requestAnimationFrame(step); }, 1000 / ANIM_FPS);
   };
   animRAF = requestAnimationFrame(step);
 }

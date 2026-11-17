@@ -1,6 +1,6 @@
 @echo off
 rem Starts LibreHardwareMonitor, the agent and Chrome full screen on the chosen display.
-rem To change POS_X / POS_Y (see detect-monitors.ps1), LHM_PATH or BROWSER,
+rem To change POS_X / POS_Y (see detect-monitors.ps1), LHM_PATH, BROWSER or CHROME_FLAGS,
 rem set them in start-dashboard.local.bat (ignored by git) rather than here.
 
 set POS_X=0
@@ -42,7 +42,12 @@ if not exist "%BROWSER%" (
   pause
   goto :eof
 )
-start "" "%BROWSER%" --user-data-dir="%~dp0chrome-profile" --disable-gpu --no-first-run --no-default-browser-check --app=http://localhost:%PORT% --window-position=%POS_X%,%POS_Y% --start-fullscreen
+rem Hardware acceleration stays on: without it (--disable-gpu) the 3D plan and every layer
+rem are drawn by the processor, several times the CPU of the page. Extensions, sync,
+rem translation and the crash bubble have no use on a wall screen. A machine whose driver
+rem shows a black window can put --disable-gpu back in CHROME_FLAGS in start-dashboard.local.bat.
+if not defined CHROME_FLAGS set "CHROME_FLAGS=--disable-extensions --disable-sync --disable-features=Translate --noerrdialogs --disable-session-crashed-bubble"
+start "" "%BROWSER%" --user-data-dir="%~dp0chrome-profile" %CHROME_FLAGS% --no-first-run --no-default-browser-check --app=http://localhost:%PORT% --window-position=%POS_X%,%POS_Y% --start-fullscreen
 
 rem --- Hide the dashboard window from Alt+Tab and the taskbar ---
 if exist "%~dp0hide-from-alttab.ps1" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0hide-from-alttab.ps1"

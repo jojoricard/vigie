@@ -320,6 +320,23 @@ test('on a tall screen a long home stands upright', async () => {
   assert.ok(Math.abs(modelAngle(deep, 0.6).azimuth) < 0.2, 'already upright: seen from the front, no turn');
 });
 
+test('from above, a long home in a tall card takes a quarter turn, and the card is filled on the side that limits it', async () => {
+  const { topAngle, frameView, homeShare, presets, LIMITS } = await page('plan.js');
+  const long = { rooms: [{ id: 'a', polygon: [[0, 0], [12, 0], [12, 6], [0, 6]] }], walls: [] };
+  assert.equal(topAngle(long, 0.6).azimuth, Math.PI / 2, 'standing upright');
+  assert.equal(topAngle(long, 1.6).azimuth, 0, 'north up in a wide card');
+  const deep = { rooms: [{ id: 'a', polygon: [[0, 0], [6, 0], [6, 12], [0, 12]] }], walls: [] };
+  assert.equal(topAngle(deep, 0.6).azimuth, 0, 'already upright');
+  const top = presets(long).top;
+  assert.equal(frameView(long, top, 0.6).azimuth, Math.PI / 2);
+  for (const aspect of [0.5, 0.75, 1, 1.6]) {
+    const s = homeShare(long, top, aspect);
+    assert.ok(Math.max(s.w, s.h) > 0.93, `${aspect}: ${JSON.stringify(s)}`);
+    const out = homeShare(long, { ...top, auto: false, azimuth: 0.7, zoom: LIMITS.minZoom }, aspect);
+    assert.ok(Math.max(out.w, out.h) >= 0.85, `turned by hand and zoomed out, ${aspect}: ${JSON.stringify(out)}`);
+  }
+});
+
 test('a wall in the way of its rooms comes down, the others stand', async () => {
   const { wallInside, wallDrop, LIMITS } = await page('plan.js');
   const DEG = Math.PI / 180;

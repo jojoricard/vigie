@@ -37,7 +37,8 @@ function step(b, mode, gap) {
   if (mode === "normal" && b.hr != null) return b.hr - b.h;
   return null;
 }
-export const MAX_SPACING = 48;   // what the spacing between two blocks may take of the room left over
+export const MAX_GAP = 48;   // the most two blocks are apart on screen, gap included, in screen pixels
+export const MAX_SPACING = MAX_GAP - 16;   // what spacing may add to the gap of the CSS (16 px, unzoomed)
 
 /* Where each block goes, in which look, and how tall it is.
    blocks: [{ id, prio, h, hc, hr, min, minc, grow, max, col }] in reading order. h, hc and
@@ -49,7 +50,7 @@ export const MAX_SPACING = 48;   // what the spacing between two blocks may take
    spare, spacing, could }] }: mode is "rich", "normal", "compact" or "hidden"; spare is
    the room no block took, spacing what each gap gets of it, could whether a block of the
    column still had a richer look that fitted (never, unless something is wrong). */
-export function arrange(blocks, { cols = 1, height, gap = 16, pager = 0 }) {
+export function arrange(blocks, { cols = 1, height, gap = 16, pager = 0, maxSpacing = MAX_SPACING }) {
   const total = (list, modes, f) => {
     const shown = list.filter((b) => modes.get(b.id) !== "hidden");
     return shown.reduce((s, b) => s + f(b, modes.get(b.id)), 0) + gap * Math.max(0, shown.length - 1);
@@ -140,7 +141,7 @@ export function arrange(blocks, { cols = 1, height, gap = 16, pager = 0 }) {
     }
     shown.forEach((x, i) => { out[x.b.id] = { page, col, mode: x.mode, height: Math.max(0, Math.floor(heights[i])) }; });
     const could = pages.length === 1 && column.some((x) => { const cost = step(x.b, x.mode, shown.length ? gap : 0); return cost != null && cost <= spare; });
-    info.push({ page, col, spare: Math.max(0, Math.floor(spare)), spacing: shown.length > 1 ? Math.min(MAX_SPACING, Math.floor(Math.max(0, spare) / (shown.length - 1))) : 0, could, stacked: shown.length > 1 });
+    info.push({ page, col, spare: Math.max(0, Math.floor(spare)), spacing: shown.length > 1 ? Math.min(maxSpacing, Math.floor(Math.max(0, spare) / (shown.length - 1))) : 0, could, stacked: shown.length > 1 });
   }));
   // one spacing for the whole page: the tightest column sets it, so the gaps look the same
   // from one column to the next (what the others keep stays at their bottom)
@@ -170,6 +171,19 @@ const GAP = 16, PAGER = 26;
 let order = 0;
 const boxes = new Set();
 const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => queueFit()) : null;
+/* What changed in a box since its last fit. A refresh that writes the same text changes
+   nothing (writers compare before writing), and a change that leaves every block as tall
+   as it was costs one reading of their heights instead of five layouts. */
+function noteChanges(records) {
+  for (const r of records) {
+    const box = r.target.closest ? r.target.closest("[data-fit]") : r.target.parentElement && r.target.parentElement.closest("[data-fit]");
+    if (!box) continue;
+    const block = (r.target.closest ? r.target : r.target.parentElement).closest(".block");
+    (box._touched = box._touched || new Set()).add(block && block.closest("[data-fit]") === box ? block : box);
+  }
+}
+const touched = typeof MutationObserver === "function" ? new MutationObserver(noteChanges) : null;
+const WATCHED = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-view", "data-rich", "data-grow", "data-hn", "data-hmax", "data-hmin", "data-prio"] };
 
 // A block keeps the place it had when first seen, wherever fitting moves it afterwards.
 // Spaced out, so a block added later can be given a place between two others.
@@ -270,10 +284,14 @@ export function fitRows(list, again = false) {
 
 /* Fits one box now. Returns the number of sub-views. `cols` forces the columns (a panel
    is one column whatever its width). */
-export function fitBox(box, { cols: forced } = {}) {
+export function fitBox(box, { cols: forced, force = false } = {}) {
   if (!box || !box.isConnected || box.hidden || !box.clientHeight) return 0;
-  if (!boxes.has(box) && typeof ResizeObserver === "function") resized.observe(box);      // the bar above may grow after a fit: refit then
+  if (!boxes.has(box)) {
+    if (resized) resized.observe(box);      // the bar above may grow after a fit: refit then
+    if (touched) touched.observe(box, WATCHED);
+  }
   boxes.add(box);
+  if (!force && unchanged(box)) return pagesOf(box);
   const all = blocksOf(box), blocks = all.filter((b) => inView(box, b));
   for (const b of all) if (!blocks.includes(b)) b.classList.add("fitHide");
   for (const b of blocks) b.classList.remove("fitHide");
@@ -294,7 +312,9 @@ export function fitBox(box, { cols: forced } = {}) {
   // Same sizes as last time: the blocks stay where they are, nothing is moved in the DOM.
   if (sig !== box._sig) {
     box._sig = sig;
-    box._plan = arrange(sized, { cols, height: H, gap, pager: PAGER });
+    // the page is zoomed on a large screen: the most it may add is set in screen pixels
+    const zoom = parseFloat(getComputedStyle(document.body).getPropertyValue("--z")) || 1;
+    box._plan = arrange(sized, { cols, height: H, gap, pager: PAGER, maxSpacing: Math.max(0, Math.floor(MAX_GAP / zoom - gap)) });
     build(box, box._plan.pages.map((columns, p) => columns.map((ids, c) => [...ids.map((i) => blocks[i]), ...(p === 0 && c === 0 ? all.filter((b) => !blocks.includes(b)) : [])])), cols);
     showPage(box);
   }
@@ -311,7 +331,42 @@ export function fitBox(box, { cols: forced } = {}) {
   });
   for (const b of blocks) for (const l of listsOf(b)) fitRows(l);
   box.dispatchEvent(new CustomEvent("fit"));
+  settle(box, forced);
   return [...box.children].filter((el) => el.classList.contains("pg")).length;
+}
+
+// The heights of the blocks as laid out, without their fixed height: what unchanged() compares.
+function naturalHeights(box, blocks) {
+  box.classList.add("measuring");
+  const h = blocks.map((b) => b.offsetHeight);
+  box.classList.remove("measuring");
+  return h;
+}
+// After a fit: what it was done for, and its own changes to the DOM forgotten.
+function settle(box, forced) {
+  const blocks = blocksOf(box).filter((b) => inView(box, b) && !b.classList.contains("fitHide"));
+  box._fitFor = { W: box.clientWidth, H: box.clientHeight, cols: forced || 0, blocks, heights: naturalHeights(box, blocks) };
+  if (touched) touched.takeRecords();
+  box._touched = null;
+}
+/* Nothing to redo: same size, and either nothing written in the box or blocks that are
+   still as tall as they were in their look (their lists are fitted again, their rows may
+   have changed). */
+function unchanged(box) {
+  const was = box._fitFor;
+  if (!was || was.W !== box.clientWidth || was.H !== box.clientHeight) return false;
+  if (touched) noteChanges(touched.takeRecords());
+  const changed = box._touched;
+  if (!changed || !changed.size) return true;
+  if (changed.has(box)) return false;
+  const blocks = blocksOf(box).filter((b) => inView(box, b) && !b.classList.contains("fitHide"));
+  if (blocks.length !== was.blocks.length || blocks.some((b, i) => b !== was.blocks[i])) return false;
+  const heights = naturalHeights(box, blocks);
+  if (heights.some((h, i) => Math.abs(h - was.heights[i]) > 0.5)) return false;
+  for (const b of changed) for (const l of listsOf(b)) fitRows(l);
+  if (touched) touched.takeRecords();
+  box._touched = null;
+  return true;
 }
 
 // How full a box is, for the layout check: the room left in each column of the sub-view

@@ -3,7 +3,7 @@
    event, rate guard) and answers with the text to show.
    The context is split in two: what the screen already shows (not to repeat) and
    what to analyze to bring something new. */
-import { $, state, esc, getJson, FetchError, DAY_MS } from "./core.js";
+import { $, state, esc, getJson, FetchError, DAY_MS, put } from "./core.js";
 import { t, fmtDate, fmtTime, dayKey } from "./i18n.js";
 import { wmoLabel, hourIndex } from "./weather.js";
 import { changeText } from "./machine.js";
@@ -220,7 +220,7 @@ async function sendBriefing() {
   }
   if (j.error) console.warn("Vigie: briefing:", j.error);
   // No text for today: yesterday's must not stay on screen.
-  $("briefing").innerHTML = j.text ? emphasize(j.text) : "";
+  put($("briefing"), j.text ? emphasize(j.text) : "");
   $("briefMeta").textContent = j.text ? t("brief.head", j.at ? fmtTime(j.at) : "") : "";
   $("briefBlock").hidden = !j.text;
   queueFit();

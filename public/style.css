@@ -598,7 +598,8 @@ button { font: inherit; }
 /* ---- Overview ---- */
 .hero { container-type: inline-size; padding: 4px 2px 0; --ico-bg: var(--abyss); }
 .clock { font-size: clamp(64px, 20cqi, 150px); font-weight: 300; line-height: .9; letter-spacing: -.02em; white-space: nowrap; }
-.clock .sec { font-size: .27em; letter-spacing: 0; color: var(--ink-3); margin-left: .25em; }
+.clock { font-variant-numeric: tabular-nums; }
+.clock .sec { font-size: .27em; letter-spacing: 0; color: var(--ink-3); margin-left: .25em; display: inline-block; min-width: 2ch; contain: layout paint style; }
 .date { margin-top: 12px; font-size: clamp(17px, 4.6cqi, 26px); color: var(--ink-2); }
 .date::first-letter { text-transform: uppercase; }
 .nameDay { margin-top: 4px; font-size: 16px; color: var(--ink-3); }
@@ -1014,3 +1015,11 @@ button { font: inherit; }
 .fuelSpark .plot .chart { height: auto; min-height: 60px; }
 .fuelCard #fuelList { flex: 0 1 auto; min-height: 0; }
 @media (max-width: 760px) { .calGrid { grid-template-columns: repeat(16, 1fr); } }
+
+/* Links in the rich look of a group: the icon of the site and a line about it. */
+.toolLink .fav { flex: none; position: relative; width: 28px; height: 28px; border-radius: 7px; background: var(--hull-2); display: grid; place-items: center; overflow: hidden; }
+.toolLink .fav b { font-size: 14px; font-weight: 600; color: var(--ink-3); }
+.toolLink .fav img { position: absolute; inset: 4px; width: 20px; height: 20px; object-fit: contain; }
+.toolLink .td { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.toolGroup.rich .toolLink { justify-content: flex-start; padding: 12px 14px; }
+.toolGroup.rich .toolLink .tl { flex: 1 1 auto; }

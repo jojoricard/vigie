@@ -1,14 +1,14 @@
 /* Entry point: loads the config, then starts every block and its refresh rhythm.
    The page is one screen: the tab shown is a box fitted by fit.js after every refresh
    and every resize, nothing scrolls. */
-import { $, state, load, applyTheme, inSpan } from "./core.js";
+import { $, state, load, applyTheme, inSpan, put } from "./core.js";
 import { t, setLang, fmtDate, dayKey } from "./i18n.js";
 import { uiScale, fitBox, queueFit, wireFit, pagesOf, setPage, orderBlocks, layoutOf } from "./fit.js";
 import { refreshWeather, renderCityTabs, refreshAqi, refreshSnow, refreshAlerts, refreshRadarFrames, startAnim, updateSky, onWeatherTabShown, renderOverviewWeather, setWeatherView, weatherViews } from "./weather.js";
 import { refreshEnergy, renderEnergy, refreshYear } from "./energy.js";
 import { refreshSensors, refreshSparks, refreshHistory, initHistControls, refreshMarkers, drawHistory, refreshSystem, refreshDevices } from "./system.js";
 import { refreshMachine, refreshChanges, refreshCrash, refreshNetwork, refreshWindows, wireMachine, renderBox } from "./machine.js";
-import { refreshHouse, houseTabShown, openDetail, lookAtPlan, planShare } from "./house.js";
+import { refreshHouse, houseTabShown, houseTabLeft, openDetail, lookAtPlan, planShare, spinPlan } from "./house.js";
 import { refreshMedia } from "./media.js";
 import { refreshTools, refreshFuel, refreshPcUpdates, toolsLeft } from "./tools.js";
 import { queueBriefing } from "./briefing.js";
@@ -21,13 +21,29 @@ const TABS = { overview: "tabOverview", weather: "tabWeather", house: "tabHouse"
 let tab = "overview";
 
 const two = (x) => String(x).padStart(2, "0");
-const clockHtml = (n) => `${two(n.getHours())}:${two(n.getMinutes())}<span class="sec">${two(n.getSeconds())}</span>`;
+/* The clock writes a text node a second, and the rest only when it changes: the
+   seconds do not touch the layout (they sit in a box of their own width, tabular figures). */
+const clocks = new WeakMap();
+function paintClock(el, n) {
+  let c = clocks.get(el);
+  if (!c || !el.contains(c.sec)) {
+    el.textContent = "";
+    const hm = document.createTextNode(""), span = document.createElement("span"), sec = document.createTextNode("");
+    span.className = "sec"; span.appendChild(sec); el.append(hm, span);
+    c = { hm, sec }; clocks.set(el, c);
+  }
+  const hm = `${two(n.getHours())}:${two(n.getMinutes())}`, sec = two(n.getSeconds());
+  if (c.hm.data !== hm) c.hm.data = hm;
+  c.sec.data = sec;
+}
+let dateShown = "";
 function tickClock() {
   const n = new Date();
-  $("clock").innerHTML = clockHtml(n);
-  $("dateLine").textContent = fmtDate(n, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  paintClock($("clock"), n);
+  const date = fmtDate(n, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  if (date !== dateShown) { dateShown = date; $("dateLine").textContent = date; }
   const veil = $("nightVeil");
-  if (veil) veil.querySelector(".clock").innerHTML = clockHtml(n);
+  if (veil) paintClock(veil.querySelector(".clock"), n);
 }
 
 /* Under the date: the name day, then a public holiday within a week and a school break
@@ -80,15 +96,16 @@ function updateNight() {
   const n = state.cfg.night, now = new Date();
   const dark = !!n && inSpan(now.getHours() * 60 + now.getMinutes(), n.from, n.to) && Date.now() >= awakeUntil;
   let veil = $("nightVeil");
-  if (!dark) { if (veil) veil.remove(); return; }
+  if (!dark) { if (veil) { veil.remove(); startAnim(); } return; }
   if (!veil) {
     veil = document.createElement("div");
     veil.id = "nightVeil";
     veil.innerHTML = `<div class="clock"></div><div class="nightAlerts"></div>`;
     document.body.appendChild(veil);
     tickClock();
+    startAnim();      // no rain under the night veil
   }
-  veil.querySelector(".nightAlerts").innerHTML = state.notices.slice(0, 4).map(noticeLine).join("");
+  put(veil.querySelector(".nightAlerts"), state.notices.slice(0, 4).map(noticeLine).join(""));
 }
 function wake() {
   const n = state.cfg && state.cfg.night;
@@ -117,8 +134,8 @@ function applyScale() {
 const TEMPO_COL = { 1: "#60a5fa", 2: "#e6e6ef", 3: "#ff6b6b" };
 function renderStatus() {
   const n = state.notices, e = state.energy, sev = worst(n);
-  $("status").innerHTML = (n.length ? `<button type="button" class="statPill ${sev}" data-goto="overview" aria-label="${t("card.alerts")}">${icon("alert")}${n.length}</button>` : "")
-    + (e && e.tempo ? `<button type="button" class="statPill tempo" data-goto="energy" title="${t("energy.tempo")}"><i style="background:${TEMPO_COL[e.tempo.code]}"></i><span>${t("tempo.colors")[e.tempo.code]}</span></button>` : "");
+  put($("status"), (n.length ? `<button type="button" class="statPill ${sev}" data-goto="overview" aria-label="${t("card.alerts")}">${icon("alert")}${n.length}</button>` : "")
+    + (e && e.tempo ? `<button type="button" class="statPill tempo" data-goto="energy" title="${t("energy.tempo")}"><i style="background:${TEMPO_COL[e.tempo.code]}"></i><span>${t("tempo.colors")[e.tempo.code]}</span></button>` : ""));
 }
 
 export function showTab(name) {
@@ -130,10 +147,11 @@ export function showTab(name) {
   // what a tab only draws when it shows, then its fit; a hidden canvas has no size, so
   // what is drawn on one is drawn again once it has
   if (name === "weather") onWeatherTabShown();
-  if (name === "house") houseTabShown();
+  if (name === "house") houseTabShown(); else houseTabLeft();
   fitBox($(TABS[name]));
-  if (name === "overview") startAnim();
+  startAnim();      // runs on the Overview only: stops elsewhere
   if (name === "machine") drawHistory();
+  catchUp();
 }
 
 function wire() {
@@ -155,19 +173,22 @@ function wire() {
 // while the page is not visible (another window over the kiosk, screen asleep) is
 // skipped, nothing to redraw and nothing asked of the agent, and caught up as soon as
 // the page shows again.
+// `only`: the tabs the data is for (what playing for the Overview, the history for the
+// Machine tab). Elsewhere the turn is skipped the same way and caught up when one shows.
 const timers = [];
 const started = [];
-function every(ms, fn) {
+function every(ms, fn, only = null) {
   const run = () => Promise.resolve(fn()).then(() => { refreshNotices(); queueFit(); });
   started.push(run());
-  const timer = { run, missed: false };
+  const timer = { run, missed: false, only };
   timers.push(timer);
-  setInterval(() => { if (document.hidden) timer.missed = true; else run(); }, ms);
+  setInterval(() => { if (document.hidden || (only && !only.includes(tab))) timer.missed = true; else run(); }, ms);
 }
-document.addEventListener("visibilitychange", () => {
+function catchUp() {
   if (document.hidden) return;
-  for (const timer of timers) if (timer.missed) { timer.missed = false; timer.run(); }
-});
+  for (const timer of timers) if (timer.missed && (!timer.only || timer.only.includes(tab))) { timer.missed = false; timer.run(); }
+}
+document.addEventListener("visibilitychange", catchUp);
 
 /* What the layout check and the captures drive the page with (scripts/): the tabs, the
    sub-views, the panels. `ready` resolves once every block has drawn a first time. */
@@ -183,6 +204,7 @@ function expose() {
     pages: () => Math.max(1, pagesOf(box())),
     layout: () => layoutOf(box()),
     planShare: () => planShare(),
+    planSpin: (dx) => spinPlan(dx),
     page: async (i) => { setPage(box(), i); await frame(); },
     devices: () => ((state.house && state.house.rooms) || []).flatMap((r) => r.devices).filter((d) => !d.state.reachable || Object.keys(d.capabilities).length).map((d) => d.id),
     panels: () => [...document.querySelectorAll("[data-panel]")].filter((el) => !el.closest("[hidden]")).map((el) => el.dataset.panel),
@@ -218,7 +240,7 @@ function expose() {
   every(5 * MIN, pixelShift);
   every(MIN, refreshSparks);
   every(5000, refreshSensors);          // LibreHardwareMonitor refreshes every 5 s, the agent caches as long (lhmPollMs)
-  every(MIN, refreshHistory);
+  every(MIN, refreshHistory, ["machine"]);
   every(MIN, refreshSystem);
   every(5 * MIN, refreshDevices);
   every(5 * MIN, refreshEnergy);
@@ -233,7 +255,7 @@ function expose() {
   every(6 * 60 * MIN, refreshTools);
   every(6 * 60 * MIN, refreshNameDay);
   every(6 * 60 * MIN, refreshHolidays);
-  every(10000, refreshMedia);           // one PowerShell round trip each time
+  every(10000, refreshMedia, ["overview"]);      // one PowerShell round trip each time: only while it shows
   every(30 * MIN, refreshWindows);
   every(30 * MIN, refreshFuel);
   every(30 * MIN, refreshPcUpdates);

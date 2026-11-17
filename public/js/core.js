@@ -45,6 +45,15 @@ export const COL = { warn: "#fce100", bad: "#ff6b6b", accent: "#b980ff" }; // st
 /* Escaping before innerHTML: text from WMI, the Windows log or config.json that we
    didn't write ourselves. */
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+/* Writes HTML only when it differs from what was written there last: a refresh that brings
+   the same values touches nothing, so no style, layout or paint follows, and the fit engine
+   sees no change. */
+export function put(el, html) {
+  if (!el) return;
+  if (el._put === html && el.isConnected) return;
+  el._put = html;
+  el.innerHTML = html;
+}
 export const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ESC[c]);
 
 export const small = (u) => `<span class="unit">${u}</span>`;
@@ -81,9 +90,40 @@ export class FetchError extends Error {
 // In demo mode the agent answers what the page would ask the outside world (lib/demo.js).
 const local = (url) => state.cfg && state.cfg.demo && /^https?:/.test(String(url)) ? "/demo/ext?u=" + encodeURIComponent(String(url)) : url;
 
+/* The reads of the agent that fall due together (the turns of every minute start at the
+   same time) leave as one request: /batch?u=/system&u=/network. One alone goes as is. */
+const BATCH_MS = 15;
+let batch = null;
+function batched(url) {
+  if (!batch) {
+    batch = new Map();
+    setTimeout(async () => {
+      const items = batch; batch = null;
+      if (items.size === 1) { const [[u, waiters]] = items; for (const w of waiters) w(direct(u)); return; }
+      const reply = fetch("/batch?" + [...items.keys()].map((u) => "u=" + encodeURIComponent(u)).join("&"))
+        .then((r) => { if (!r.ok) throw new FetchError(`/batch: HTTP ${r.status}`, r.status); return r.json(); },
+          (e) => { throw new FetchError(`/batch: ${e.message}`); });
+      for (const [u, waiters] of items) {
+        const one = reply.then((all) => {
+          const x = all[u];
+          if (!x) throw new FetchError(`${u}: no answer`);
+          if (x.status !== 200) throw new FetchError(`${u}: HTTP ${x.status}`, x.status);
+          return x.body;
+        });
+        for (const w of waiters) w(one);
+      }
+    }, BATCH_MS);
+  }
+  return new Promise((resolve) => { const w = batch.get(url) || []; w.push(resolve); batch.set(url, w); });
+}
+const batchable = (url, opts) => !opts && typeof url === "string" && url.startsWith("/") && !/^\/(api|demo|batch)\b/.test(url);
+
 export async function getJson(url, opts) {
-  let res;
   url = local(url);
+  return batchable(url, opts) ? batched(url) : direct(url, opts);
+}
+async function direct(url, opts) {
+  let res;
   try { res = await fetch(url, opts); } catch (e) { throw new FetchError(`${url}: ${e.message}`); }
   if (!res.ok) throw new FetchError(`${url}: HTTP ${res.status}`, res.status);
   try { return await res.json(); } catch { throw new FetchError(`${url}: invalid JSON`, res.status); }

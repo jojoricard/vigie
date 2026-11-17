@@ -3,7 +3,7 @@
    an emission estimate; the PC's kWh are integrated by the agent from its samples; the
    air conditioners report their own counters, read on the local network by the house
    service; a Linky module, when one answers, gives the meter of the home. */
-import { $, state, esc, small, readout, load } from "./core.js";
+import { $, state, esc, small, readout, load, put } from "./core.js";
 import { t, dec, nb, fmtDate, fmtTime, dayKey, LOCALE } from "./i18n.js";
 import { renderNormal } from "./weather.js";
 
@@ -86,7 +86,7 @@ function renderMini(d) {
   const meter = meterOf(state.house && state.house.rooms);
   if (meter && meter.state.power != null) parts.push(readout(t("card.meter"), `${nb(Math.round(meter.state.power))}${small("W")}`));
   $("energyMini").hidden = !parts.length;
-  $("energyMiniRow").innerHTML = parts.join("");
+  put($("energyMiniRow"), parts.join(""));
 }
 
 export function renderEnergy() {
@@ -101,24 +101,24 @@ export function renderEnergyTab() {
   if (!d) return;
   // Tempo: today, tomorrow, and the days left of each color in the season
   $("tempoCard").hidden = !d.tempo && !d.tempoTomorrow;
-  $("tempoDays").innerHTML = [["energy.todayLabel", d.tempo], ["energy.tomorrowLabel", d.tempoTomorrow]]
-    .map(([k, day]) => `<div class="tempoDay"><div class="k">${t(k)}</div><div class="v">${tempoName(day)}</div></div>`).join("");
+  put($("tempoDays"), [["energy.todayLabel", d.tempo], ["energy.tomorrowLabel", d.tempoTomorrow]]
+    .map(([k, day]) => `<div class="tempoDay"><div class="k">${t(k)}</div><div class="v">${tempoName(day)}</div></div>`).join(""));
   const left = d.tempoLeft, names = t("tempo.colors");
   $("tempoLeft").hidden = !left;
   $("tempoMeta").textContent = left ? t("energy.daysLeft") : "";
-  $("tempoLeft").innerHTML = !left ? "" : [[1, left.blue], [2, left.white], [3, left.red]].filter(([, n]) => n != null)
-    .map(([code, n]) => readout(`<span class="tempoDot" style="background:${TEMPO_COL[code]}"></span>${names[code]}`, n)).join("");
+  put($("tempoLeft"), !left ? "" : [[1, left.blue], [2, left.white], [3, left.red]].filter(([, n]) => n != null)
+    .map(([code, n]) => readout(`<span class="tempoDot" style="background:${TEMPO_COL[code]}"></span>${names[code]}`, n)).join(""));
 
-  $("tempoCal").innerHTML = d.tempoMonth && d.tempoMonth.length ? calendar(d.tempoMonth) : "";
+  put($("tempoCal"), d.tempoMonth && d.tempoMonth.length ? calendar(d.tempoMonth) : "");
   $("tempoCal").hidden = !(d.tempoMonth && d.tempoMonth.length);
   $("carbonCurve").hidden = !d.carbonDay;
-  $("carbonCurve").innerHTML = d.carbonDay ? curve(d.carbonDay.map((p) => ({ v: p.gco2, label: fmtTime(p.at) })), { unit: " g" }) : "";
+  put($("carbonCurve"), d.carbonDay ? curve(d.carbonDay.map((p) => ({ v: p.gco2, label: fmtTime(p.at) })), { unit: " g" }) : "");
 
   $("carbonCard").hidden = !d.carbon;
   if (d.carbon) {
     const live = state.liveWatts ? Math.round(((state.liveWatts + d.consumption.baseWatts) * d.carbon.gco2) / 1000) : null;
-    $("carbonRow").innerHTML = readout(t("energy.grid"), `${d.carbon.gco2}${small("g/kWh")}`, carbonLevel(d.carbon.gco2))
-      + (live != null ? readout(t("energy.emissions"), `${live}${small("g CO₂/h")}`, t("energy.cpuGpu", Math.round(state.liveWatts))) : "");
+    put($("carbonRow"), readout(t("energy.grid"), `${d.carbon.gco2}${small("g/kWh")}`, carbonLevel(d.carbon.gco2))
+      + (live != null ? readout(t("energy.emissions"), `${live}${small("g CO₂/h")}`, t("energy.cpuGpu", Math.round(state.liveWatts))) : ""));
   }
 
   // The PC: today and this month, with the end-of-month projection against the whole
@@ -138,44 +138,44 @@ export function renderEnergyTab() {
     parts.push(readout(t("energy.month"), `${kwh(c.month.kwh)}${small("kWh")}`, sub.filter(Boolean).join(", ")));
   }
   $("pcEnergyCard").hidden = !parts.length;
-  $("pcEnergyRow").innerHTML = parts.join("");
+  put($("pcEnergyRow"), parts.join(""));
   $("pcEnergyMeta").textContent = state.liveWatts ? `${Math.round(state.liveWatts + c.baseWatts)} W` : "";
 
   const rooms = state.house && state.house.rooms;
   const units = climateEnergy(rooms), most = Math.max(...units.map((u) => u.week || 0), 0.1);
   $("acEnergyCard").hidden = !units.length;
-  $("acEnergyRows").innerHTML = `<div class="acRow head"><span>${t("energy.unit")}</span><span class="r">${t("energy.todayLabel")}</span><span class="r">${t("energy.week")}</span><span></span></div>`
+  put($("acEnergyRows"), `<div class="acRow head"><span>${t("energy.unit")}</span><span class="r">${t("energy.todayLabel")}</span><span class="r">${t("energy.week")}</span><span></span></div>`
     + units.map((u) => `<div class="acRow"><span class="nm">${esc(u.room)} · ${esc(u.name)}</span>
       <span class="r num">${u.today != null ? dec(u.today, 1) + " kWh" : "–"}</span><span class="r num">${u.week != null ? dec(u.week, 1) + " kWh" : "–"}</span>
-      <span class="barline"><i style="width:${Math.round(((u.week || 0) / most) * 100)}%"></i></span></div>`).join("");
+      <span class="barline"><i style="width:${Math.round(((u.week || 0) / most) * 100)}%"></i></span></div>`).join(""));
 
   // the week day by day, one tone a unit, and what it cost at today's price
   const stacked = units.some((u) => u.days) ? stackDays(units) : [], top = Math.max(...stacked.map((x) => x.total), 0.1);
   const tone = (i) => `opacity:${Math.max(0.3, 1 - i * 0.28)}`;
   $("acChart").hidden = !stacked.length;
-  $("acChart").innerHTML = !stacked.length ? "" : `<div class="barDays">${stacked.map((x) => {
+  put($("acChart"), !stacked.length ? "" : `<div class="barDays">${stacked.map((x) => {
     const day = new Date(Date.now() - x.ago * 86400000);
     return `<div class="barDay"><span class="num tot">${x.total ? dec(x.total, 1) : ""}</span><div class="stack" style="height:${Math.round((x.total / top) * 100)}%">${x.parts.map((v, i) => v > 0 ? `<i style="flex:${v};${tone(i)}"></i>` : "").join("")}</div><span class="dayL">${x.ago === 0 ? t("today") : fmtDate(day, { weekday: "short" })}</span></div>`;
   }).join("")}</div>
-    <div class="chartLegend">${units.map((u, i) => `<span><i style="${tone(i)}"></i>${esc(u.room)}${u.week != null && c.price ? ` <b class="num">${eur(u.week * c.price)}</b>` : ""}</span>`).join("")}<span class="dim">${t("energy.weekCost")}</span></div>`;
+    <div class="chartLegend">${units.map((u, i) => `<span><i style="${tone(i)}"></i>${esc(u.room)}${u.week != null && c.price ? ` <b class="num">${eur(u.week * c.price)}</b>` : ""}</span>`).join("")}<span class="dim">${t("energy.weekCost")}</span></div>`);
 
   // everything counted, together
   const all = trackedEnergy(c, units, c.price), total = [];
   if (all.today && units.length) total.push(readout(t("energy.today"), `${kwh(all.today.kwh)}${small("kWh")}`, [all.today.cost != null ? eur(all.today.cost) : null, t("energy.split", kwh(all.today.pc), kwh(all.today.units))].filter(Boolean).join(", ")));
   if (all.month && units.some((u) => u.month != null)) total.push(readout(t("energy.month"), `${kwh(all.month.kwh)}${small("kWh")}`, [all.month.cost != null ? eur(all.month.cost) : null, t("energy.split", kwh(all.month.pc), kwh(all.month.units))].filter(Boolean).join(", ")));
   $("totalCard").hidden = !total.length;
-  $("totalRow").innerHTML = total.join("");
+  put($("totalRow"), total.join(""));
 
   const meter = meterOf(rooms);
   $("meterCard").hidden = !meter;
   if (meter) {
     const s = meter.state;
     $("meterMeta").textContent = meter.name;
-    $("meterRow").innerHTML = [
+    put($("meterRow"), [
       s.power != null ? readout(t("meter.power"), `${nb(Math.round(s.power))}${small("W")}`) : "",
       s.index != null ? readout(t("meter.index"), `${nb(Math.round(s.index))}${small("kWh")}`) : "",
       s.tariff ? readout(t("meter.tariff"), `<span class="word">${esc(s.tariff)}</span>`) : "",
-    ].join("");
+    ].join(""));
   }
 }
 

@@ -11,6 +11,7 @@ const { execFile } = require('child_process');
 
 const ctx = require('./lib/context');
 const { SourceError, logError } = require('./lib/errors');
+const perf = require('./lib/perf');
 const storage = require('./lib/storage');
 const sensors = require('./lib/sensors');
 const { pingTcp, networkSummary } = require('./lib/network');
@@ -136,6 +137,7 @@ const LIVE = {
   '/windows': windowsStatus,
   '/media': media.nowPlaying,
   '/history': (url) => history(url.searchParams.get('range')),
+  '/perf': perf.snapshot,
 };
 const GET = !DEMO ? LIVE : {
   ...demo.GET,
@@ -143,6 +145,23 @@ const GET = !DEMO ? LIVE : {
   '/history': (url) => demo.history(url.searchParams.get('range')),
   // what the page would ask Open-Meteo: the demo answers it here, a capture needs no network
   '/demo/ext': (url) => demo.external(url.searchParams.get('u') || '') || {},
+  '/perf': perf.snapshot,
+};
+/* Several GET routes in one request: /batch?u=/system&u=/network gives
+ * { "/system": { status, body }, ... }. The page asks what falls due together in one go. */
+GET['/batch'] = async (url) => {
+  const out = {};
+  await Promise.all(url.searchParams.getAll('u').slice(0, 20).map(async (u) => {
+    const inner = new URL(u, 'http://localhost');
+    const fn = inner.pathname !== '/batch' && GET[inner.pathname];
+    if (!fn) { out[u] = { status: 404, body: { error: 'not found' } }; return; }
+    try { out[u] = { status: 200, body: await perf.timed('GET ' + inner.pathname, () => fn(inner)) }; }
+    catch (e) {
+      if (e instanceof SourceError) out[u] = { status: 502, body: { error: e.message } };
+      else { logError(u, e); out[u] = { status: 500, body: { error: String(e.message || e) } }; }
+    }
+  }));
+  return out;
 };
 
 // Routes that act: POST only, same origin only.
@@ -175,7 +194,7 @@ async function route(req, res) {
     const file = staticFiles.get(p);
     return send(res, 200, fs.readFileSync(file), MIME[path.extname(file)]);
   }
-  if (req.method === 'GET' && GET[p]) return send(res, 200, await GET[p](url));
+  if (req.method === 'GET' && GET[p]) return send(res, 200, p === '/batch' ? await GET[p](url) : await perf.timed('GET ' + p, () => GET[p](url)));
   if (p.startsWith(house.PREFIX)) return houseApi(req, res);
   if (req.method === 'POST' && POST[p]) {
     if (!sameOrigin(req)) return send(res, 403, { error: 'origin refused' });
@@ -230,14 +249,14 @@ async function sample() {
   const parsed = await sensors.readSensors().catch((e) => { if (!(e instanceof SourceError)) throw e; logError('LibreHardwareMonitor', e); return null; });
   if (parsed) Object.assign(rec, sensors.toSample(parsed));
   rec.rf = Math.round((1 - os.freemem() / os.totalmem()) * 1000) / 10; // RAM % seen by the OS
-  rec.pi = await pingTcp();                                            // internet latency (ms), null on failure
+  rec.pi = await perf.timed('ping', pingTcp);                          // internet latency (ms), null on failure
   storage.storeAdd(rec);
 }
 
 // The one generic catch of the scheduler: a failing job must not take the server
 // down, it is logged and runs again at its next turn.
 function every(ms, name, fn) {
-  const run = () => Promise.resolve().then(fn).catch((e) => logError(name, e));
+  const run = () => Promise.resolve().then(() => perf.timed('job ' + name, fn)).catch((e) => logError(name, e));
   run();
   setInterval(run, ms);
 }

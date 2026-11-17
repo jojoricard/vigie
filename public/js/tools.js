@@ -2,7 +2,7 @@
    with the latest release of the repos they track, then the fuel prices: one more thing
    looked up before going out. Links open in the default browser (main screen) through
    /open, which only allows URLs declared in config.json. */
-import { $, LS, state, esc, load, DAY_MS } from "./core.js";
+import { $, LS, state, esc, load, DAY_MS, put } from "./core.js";
 import { t, dec, relTime } from "./i18n.js";
 import { icon, ICON_NAMES } from "./icons.js";
 import { queueFit } from "./fit.js";
@@ -47,10 +47,21 @@ function renderNews() {
   const news = releasedSince(releases, seen);
   $("newsCard").hidden = !news.length;
   $("newsMeta").textContent = news.length ? (seen ? t("tools.sinceVisit", relTime(new Date(seen).toISOString())) : t("tools.recent")) : "";
-  $("newsRows").innerHTML = news.map((v) => `<div class="newsRow" data-url="${encodeURIComponent(v.url || "")}">
+  put($("newsRows"), news.map((v) => `<div class="newsRow" data-url="${encodeURIComponent(v.url || "")}">
       <span class="rn">${esc(v.repo.split("/").pop())}</span>
       ${v.installed && v.outdated ? `<span class="rloc late">${t("tools.installed", esc(v.installed))}</span>` : ""}
-      <span class="rv num">${esc(v.version)}</span><span class="rd">${relTime(v.date)}</span></div>`).join("");
+      <span class="rv num">${esc(v.version)}</span><span class="rd">${relTime(v.date)}</span></div>`).join(""));
+}
+
+/* A link: its label, and in the rich look the icon of the site (its own favicon, loaded by
+   the browser and kept in its cache; the first letter until it comes, or if it never does)
+   and a short line, `desc` in the config or the name of the site. */
+function linkHtml(l) {
+  let host = "";
+  try { host = new URL(l.url).hostname.replace(/^www\./, ""); } catch { /* not a web link: no icon, no host */ }
+  const fav = host ? `<img src="https://${esc(host)}/favicon.ico" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+  return `<span class="toolLink" data-url="${encodeURIComponent(l.url)}"><span class="fav richOnly"><b>${esc((l.label || "?").trim().charAt(0).toUpperCase())}</b>${fav}</span>`
+    + `<span class="tl">${esc(l.label)}<small class="td richOnly">${esc(l.desc || host)}</small></span>${icon("link")}</span>`;
 }
 
 export async function refreshTools() {
@@ -65,13 +76,14 @@ export async function refreshTools() {
     const el = document.createElement("section");
     el.className = "block card toolGroup";
     el.dataset.prio = "1";
+    el.dataset.rich = "";      // with room to spare, each link shows the icon of its site and a line about it
     el._order = first + 1 + i;      // between the news and the fuel prices, in the order of the config
     if (!g) el.innerHTML = `<div class="err">${t("tools.none")}</div>`;
     else {
       const repos = (g.releases || []).filter((r) => releases[r]);
       el.innerHTML = `<div class="bHead tgHead"><span class="tgIcon">${groupIcon(g.icon)}</span><span class="tgName">${esc(g.name)}</span><span class="pgr" data-pager hidden></span></div>
         <div class="rows toolGrid" data-rows data-min-rows="2">${repos.map((r) => releaseRow(r, releases[r], fresh.has(r))).join("")}${repos.length && (g.links || []).length ? '<div class="relSep"></div>' : ""}
-        ${(g.links || []).map((l) => `<span class="toolLink" data-url="${encodeURIComponent(l.url)}"><span class="tl">${esc(l.label)}</span>${icon("link")}</span>`).join("")}</div>`;
+        ${(g.links || []).map(linkHtml).join("")}</div>`;
     }
     pane.appendChild(el);
   });
@@ -99,11 +111,11 @@ export function pcUpdates(machine, windows) {
 export async function refreshPcUpdates() {
   const rows = pcUpdates(await load("/machine"), state.windows || await load("/windows"));
   $("pcUpdCard").hidden = !rows.length;
-  $("pcUpdRows").innerHTML = rows.map((r) => {
+  put($("pcUpdRows"), rows.map((r) => {
     const state = r.id !== "windows" ? "" : r.reboot ? `<span class="rs warn">${t("pcupd.reboot")}</span>` : r.pending ? `<span class="rs warn">${t("pcupd.pending", r.pending)}</span>` : `<span class="rs ok">${t("pcupd.upToDate")}</span>`;
     return `<div class="relRow"><span class="rn">${t("pcupd." + r.id)}${r.name ? `<span class="dim">${esc(r.name)}</span>` : ""}</span>${state}
       <span class="rv num">${r.version ? esc(r.version) : "–"}</span><span class="rd">${r.date ? relTime(r.date) : ""}</span></div>`;
-  }).join("");
+  }).join(""));
   queueFit();
 }
 
@@ -140,13 +152,13 @@ export async function refreshFuel() {
   $("fuelMeta").textContent = state.cities[0] ? state.cities[0].short : "";
   const curve = fuelCurve(l), card = $("fuelCard");
   $("fuelCurve").hidden = !curve;
-  $("fuelCurve").innerHTML = curve;
+  put($("fuelCurve"), curve);
   // without curves the card is a short list: it takes no room it would leave empty
   card.toggleAttribute("data-grow", !!curve);
   if (curve) card.dataset.grow = "1";
   // one row per station, the cheapest of each fuel first
-  $("fuelList").innerHTML = l.flatMap((f) => f.stations.length ? f.stations.map((s, i) => `<div class="fuelRow${i ? "" : " best"}">
+  put($("fuelList"), l.flatMap((f) => f.stations.length ? f.stations.map((s, i) => `<div class="fuelRow${i ? "" : " best"}">
         <span class="p num">${dec(s.price, 3)} €</span>
         <span class="a">${esc(s.address)}, ${esc(s.city)}<span class="dim">${t("fuel." + f.type)} · ${t("fuel.km", dec(s.distance / 1000))}, ${relTime(new Date(s.updated).toISOString())}</span></span>
-      </div>`) : [`<div class="fuelRow"><span class="p">–</span><span class="a">${t("fuel." + f.type)}<span class="dim">${t("fuel.none")}</span></span></div>`]).join("");
+      </div>`) : [`<div class="fuelRow"><span class="p">–</span><span class="a">${t("fuel." + f.type)}<span class="dim">${t("fuel.none")}</span></span></div>`]).join(""));
 }

@@ -1,6 +1,6 @@
 /* Machine tab: the hardware sheet (short, its detail in a panel), what changed, the
    incidents, the health of the connection. */
-import { $, state, esc, small, readout, load, DAY_MS } from "./core.js";
+import { $, state, esc, small, readout, load, DAY_MS, put } from "./core.js";
 import { changeIcon, icon } from "./icons.js";
 import { t, dec, nb, fmtDate, fmtTime, relTime, LOCALE } from "./i18n.js";
 import { openPanel } from "./panel.js";
@@ -50,19 +50,19 @@ export async function refreshMachine() {
   if (!m || (!m.cpu && !m.gpu)) {   // say it rather than hide the card silently
     sheet = null;
     $("machMore").hidden = true;
-    $("machShort").innerHTML = `<div class="err">${t("mach.unavailable")}</div>`;
+    put($("machShort"), `<div class="err">${t("mach.unavailable")}</div>`);
     return;
   }
   sheet = m;
   $("machMore").hidden = false;
   // the short sheet: what the machine is, and the two dates that explain a crash
   const total = (m.ram || []).reduce((n, r) => n + (r.gb || 0), 0);
-  $("machShort").innerHTML = [
+  put($("machShort"), [
     m.cpu ? [t("mach.cpu"), esc(m.cpu)] : null,
     m.gpu ? [t("mach.gpu"), `${esc(m.gpu)}${m.gpuDriverDate ? when(m.gpuDriverDate) : ""}`] : null,
     total ? [t("mach.ram"), `${total} ${t("unit.gb")}`] : null,
     m.os ? [t("mach.windows"), `${m.build ? `build ${esc(m.build)}` : esc(m.os)}${m.hotfixDate ? when(m.hotfixDate) : ""}`] : null,
-  ].filter(Boolean).map(([k, v]) => `<div><span class="k">${k}</span>${v}</div>`).join("");
+  ].filter(Boolean).map(([k, v]) => `<div><span class="k">${k}</span>${v}</div>`).join(""));
 }
 
 /* ================= What changed (breaks found by the agent) =================
@@ -80,10 +80,10 @@ export async function refreshChanges() {
   // A break at the "alert" level is an alert of the page (alerts.js); here, all of them with their figures.
   $("changeCard").hidden = !l.length;
   $("changeCard").classList.toggle("alert", l.some((c) => c.level === "alert"));
-  $("changeBody").innerHTML = l.map((c) => {
+  put($("changeBody"), l.map((c) => {
     const x = changeText(c);
     return `<div class="chgLine ${c.level}"><span class="ic">${changeIcon(c.kind)}</span><span class="t">${esc(x.title)}</span><span class="d">${esc(x.detail)}</span></div>`;
-  }).join("");
+  }).join(""));
 }
 
 /* ================= Incidents (black box + Windows log) ================= */
@@ -116,17 +116,17 @@ export async function refreshCrash() {
         nat.freeze ? `<b>${t("crash.freezes", nat.freeze)}</b> ${t("crash.freezeNote")}` : null,
         nat.cut ? `<b>${t("crash.cuts", nat.cut)}</b> ${t("crash.cutNote")}` : null,
       ].filter(Boolean).join(" · ")}</div>` : "";
-  $("crashTop").innerHTML = streak + `<div class="crashFreq${split ? " tight" : ""}">
+  put($("crashTop"), streak + `<div class="crashFreq${split ? " tight" : ""}">
       <b>${t("crash.count", cnt.d30)}</b>
-      <span class="dim">${t("crash.over30", cnt.d7)}</span></div>` + split;
+      <span class="dim">${t("crash.over30", cnt.d7)}</span></div>` + split);
 
   // Incident list, latest first: rows of a list, the older ones on its next pages
-  $("crashList").innerHTML = hist.map((h) => {
+  put($("crashList"), hist.map((h) => {
     const tag = NATURES.includes(h.nature)
       ? ` <span class="natTag dim">${t("nature." + h.nature)}${h.nature === "freeze" ? ` · ${t("crash.silence", Math.max(1, Math.round(h.silence / 60)))}` : ""}</span>`
       : "";
     return `<div class="incRow"><span class="it">${t("incident." + h.type)}${tag}</span><span class="dim">${crashAt(h.t)}</span></div>`;
-  }).join("");
+  }).join(""));
 }
 const NATURES = ["freeze", "cut", "undetermined"];
 
@@ -171,14 +171,14 @@ export async function refreshNetwork() {
   $("netMeta").textContent = young ? t("net.metaYoung", d.target, d.samples) : t("net.meta", d.target, d.samples);
   const col = (ms) => ms == null ? "var(--ink-3)" : ms < 30 ? "var(--mint)" : ms < 70 ? "var(--amber)" : "var(--coral)";
   const ms = (v) => v == null ? "–" : `${v}${small("ms")}`;
-  $("netRow").innerHTML = [
+  put($("netRow"), [
     readout(t("net.latency"), `<span style="color:${d.failingNow ? "var(--coral)" : col(d.latest)}">${ms(d.latest)}</span>`,
       d.latest == null ? t("net.noAnswer") : d.failingNow ? t("net.lastFailed") : t("net.last")),
     readout(t("net.avg"), young ? "–" : ms(d.avg), young ? t("net.notEnough") : (d.max != null ? t("net.peak", d.max) : "")),
     readout(t("net.jitter"), young ? "–" : ms(d.jitter), t("net.jitterSub")),
     readout(t("net.loss"), young ? "–" : `<span style="color:${d.loss > 1 ? "var(--coral)" : "var(--mint)"}">${nb(d.loss, 1)} %</span>`,
       young ? "" : d.loss > 1 ? t("net.unstable") : t("net.stable")),
-  ].join("");
+  ].join(""));
   renderBox();
 }
 
@@ -190,13 +190,13 @@ export function renderBox() {
   $("boxRow").hidden = !n;
   if (!n) return;
   const up = n.state === "up", last = n.lastOutage;
-  $("boxRow").innerHTML = [
+  put($("boxRow"), [
     readout(t("box.line"), `<span style="color:${up ? "var(--mint)" : "var(--coral)"}">${up ? t("box.up") : t("box.down")}</span>`, n.media ? esc(n.media) : ""),
     n.rateDown != null ? readout(t("box.down.rate"), `${mbps(n.rateDown)}${small("Mb/s")}`, n.bandwidthDown ? t("box.of", nb(n.bandwidthDown / 1e6, 0)) : "") : "",
     n.rateUp != null ? readout(t("box.up.rate"), `${mbps(n.rateUp)}${small("Mb/s")}`, n.bandwidthUp ? t("box.of", nb(n.bandwidthUp / 1e6, 0)) : "") : "",
     readout(t("box.outage"), last ? `<span class="word">${fmtDate(last.at, { day: "numeric", month: "short" })}</span>` : `<span class="word">${t("box.none")}</span>`,
       last ? `${fmtTime(last.at)}${last.minutes != null ? ` · ${t("house.minutes", last.minutes)}` : ""}` : ""),
-  ].join("");
+  ].join(""));
 }
 
 /* ================= Windows waiting =================
@@ -208,8 +208,8 @@ export async function refreshWindows() {
   state.windows = w;
   const reboot = !!(w.reboot && w.reboot.length), updates = w.updates ? w.updates.length : 0;
   $("winStatus").hidden = !reboot && !updates;
-  $("winStatus").innerHTML = [reboot ? t("win.rebootLong") : "", updates ? t("win.updatesList", updates, w.updates.map(esc).join(", ")) : ""]
-    .filter(Boolean).join("<br>");
+  put($("winStatus"), [reboot ? t("win.rebootLong") : "", updates ? t("win.updatesList", updates, w.updates.map(esc).join(", ")) : ""]
+    .filter(Boolean).join("<br>"));
 }
 
 // "since 14:02", with the day once it is no longer today

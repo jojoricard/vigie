@@ -41,7 +41,7 @@ export const I18N = {
     "house.programTime": "Time", "house.programAdd": (day) => `Add an entry on ${day}`, "house.programCopyTo": (day) => `Copy ${day} to`, "house.turnsOn": "Turns on",
     "house.turnsOff": "Turns off", "house.programSameTime": "Two entries of the same day cannot share a time.",
     "house.viaCloud": "through the Govee cloud, not the local network", "house.lanSilentShort": "no answer on the local network", "house.cloudOfflineShort": "offline · cut at the switch?", "house.modules": "Modules",
-    "sys.network": "Network", "sys.upFor": (d) => `on for ${d}`, "sys.diskTemp": "Disk temperature", "sys.liquid": "Liquid (AIO)", "sys.gpuDetail": "GPU hotspot / VRAM",
+    "sys.network": "Network", "sys.upFor": (d) => `on for ${d}`, "sys.diskTemp": "Disk temperature", "sys.liquid": "Liquid (AIO)", "sys.gpuDetail": "GPU hotspot / VRAM", "fan.n": (n) => `Fan ${n}`, "fan.pump": "Pump", "fan.one": "Fan",
     "sys.ramTemp": "RAM temperature", "sys.gpuFan": "GPU fan", "sys.hotspot": "GPU hotspot", "ssd.short": "SSD health", "disk.freeShort": (n) => `${n} GB free`,
     "home.lit": (n, of) => (of > 1 ? `${n} of ${of} on` : "on"), "home.dark": "off",
     "hist.temp": "Temp°", "hist.load": "Load %", "hist.network": "Network", "hist.latency": "Latency", "hist.fans": "Fans", "hist.power": "Power",
@@ -219,7 +219,7 @@ export const I18N = {
     "house.turnsOff": "Arrêt", "house.programSameTime": "Deux entrées d'un même jour ne peuvent pas avoir la même heure.",
     "house.viaCloud": "via le cloud Govee, pas le réseau local", "house.lanSilentShort": "sans réponse sur le réseau local", "house.cloudOfflineShort": "hors ligne · coupée à l'interrupteur ?", "house.modules": "Modules",
     "sys.network": "Réseau", "sys.upFor": (d) => `allumé depuis ${d}`, "sys.diskTemp": "Température disques", "sys.liquid": "Liquide (AIO)",
-    "sys.gpuDetail": "GPU hotspot / VRAM", "sys.ramTemp": "Température RAM", "sys.gpuFan": "Ventilateur GPU", "sys.hotspot": "Point chaud GPU", "ssd.short": "Santé SSD", "disk.freeShort": (n) => `${n} Go libres`,
+    "sys.gpuDetail": "Point chaud / VRAM du GPU", "fan.n": (n) => `Ventilateur ${n}`, "fan.pump": "Pompe", "fan.one": "Ventilateur", "sys.ramTemp": "Température RAM", "sys.gpuFan": "Ventilateur GPU", "sys.hotspot": "Point chaud GPU", "ssd.short": "Santé SSD", "disk.freeShort": (n) => `${n} Go libres`,
     "home.lit": (n, of) => (of > 1 ? `${n} sur ${of} allumées` : "allumée"), "home.dark": "éteint",
     "hist.temp": "Temp°", "hist.load": "Charge %", "hist.network": "Réseau", "hist.latency": "Latence", "hist.fans": "Ventilos", "hist.power": "Conso",
     "hist.collecting": "Historique en cours de collecte…", "hist.liquid": "Liquide", "hist.disk": "Disque", "hist.down": "↓ Récep.", "hist.up": "↑ Envoi",
@@ -379,10 +379,20 @@ export function t(key, ...args) {
 }
 
 /* Number and date formatting follow the language: "1,7" in French, "1.7" in English. */
-export const dec = (v, n = 1) => Number(v).toLocaleString(LOCALE, { minimumFractionDigits: n, maximumFractionDigits: n });
-export const nb = (v, d = 0) => Number(v).toLocaleString(LOCALE, { maximumFractionDigits: d });
-export const fmtDate = (d, opts) => new Date(d).toLocaleDateString(LOCALE, opts);
-export const fmtTime = (d) => new Date(d).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+/* toLocaleString builds a formatter on every call, a cost the page paid hundreds of
+   times a minute: one formatter per set of options, kept. */
+const formatters = new Map();
+const formatter = (kind, opts) => {
+  const key = kind + LOCALE + JSON.stringify(opts || {});
+  let f = formatters.get(key);
+  if (!f) { f = kind === "n" ? new Intl.NumberFormat(LOCALE, opts) : new Intl.DateTimeFormat(LOCALE, opts); formatters.set(key, f); }
+  return f;
+};
+const DATE_ONLY = { year: "numeric", month: "numeric", day: "numeric" };
+export const dec = (v, n = 1) => formatter("n", { minimumFractionDigits: n, maximumFractionDigits: n }).format(Number(v));
+export const nb = (v, d = 0) => formatter("n", { maximumFractionDigits: d }).format(Number(v));
+export const fmtDate = (d, opts) => formatter("d", opts && Object.keys(opts).length ? opts : DATE_ONLY).format(new Date(d));
+export const fmtTime = (d) => formatter("d", { hour: "2-digit", minute: "2-digit" }).format(new Date(d));
 const silenceText = (s) => { const m = Math.round(s / 60); return m >= 1 ? `${m} min` : `${s} s`; };
 // Local YYYY-MM-DD, the same key as dayKey() on the agent side. toISOString()
 // would give UTC, still yesterday between local and UTC midnight.

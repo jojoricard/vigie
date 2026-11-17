@@ -65,3 +65,22 @@ test('the dictionaries are complete and consistent', async () => {
   const unused = en.filter((k) => !used.has(k));
   assert.deepEqual(unused, [], 'keys defined but never used');
 });
+
+/* No English left in the French interface: a French value equal to the English one is
+   either one of these words, which French shares (or a name), or a forgotten translation. */
+const SAME_IN_FRENCH = new Set(['Machine', 'max', 'min', 'Incidents', 'Tempo', 'BIOS', 'Windows', 'Orange', 'Ambiance', 'Modules', 'Temp°',
+  'Internet', 'incident', 'Kraken', 'NZXT', 'GPU', 'orange', 'Avalanches', 'Min / Max', 'Auto', 'Eco+', 'Source', 'Application', 'Mode', 'Volume',
+  'Streamer', 'Boost', 'Pause', 'Windows Update', 'Index', 'Cycle', 'active', 'Freebox', 'MQTT (Zigbee2MQTT)', 'Cozytouch (Atlantic, Thermor, Sauter)',
+  'LG ThinQ', 'Stop', 'CPU', 'RAM', 'Liq.']);
+test('the French interface has no English left', async () => {
+  const { I18N } = await import(pathToFileURL(path.join(JS_DIR, 'i18n.js')));
+  const left = [];
+  const look = (k, e, f) => {
+    if (typeof e === 'string' && e === f && /[a-z]{3,}/i.test(e) && !SAME_IN_FRENCH.has(e)) left.push(`${k}: ${e}`);
+  };
+  for (const k of Object.keys(I18N.en)) {
+    const e = I18N.en[k], f = I18N.fr[k];
+    if (Array.isArray(e)) e.forEach((x, i) => look(`${k}[${i}]`, x, f[i])); else look(k, e, f);
+  }
+  assert.deepEqual(left, []);
+});

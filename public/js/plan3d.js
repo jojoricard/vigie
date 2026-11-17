@@ -7,10 +7,10 @@
    Each kind of device is one entry of MODULES: a new type is a new entry. */
 import * as THREE from "../vendor/three/three.module.min.js";
 import { furnitureParts, placePart, colorOf } from "./furniture.js";
-import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, standHeight, wallInside, highOf, curtainOf, holdView, panBy, zoomAt, LIMITS, homeShare, naturalHeight } from "./plan.js";
+import { CUT_HEIGHT, roomBounds, polygonArea, polygonCentroid, labelPoint, openEdges, wallFrame, wallPieces, openingFrame, nearestWall, roomAt, placedDevices, temperatureTint, coverClosed, presets, clampView, frameView, mixFrame, viewAxes, sunlight, wallHeight, standHeight, wallInside, highOf, curtainOf, holdView, panBy, zoomAt, LIMITS, homeShare } from "./plan.js";
 
 const MAX_PIXEL_RATIO = 1.5;      // a 4K kiosk would otherwise shade four times the pixels
-const AMBIENT_FPS = 20;           // the breath of an air conditioner needs no more
+const AMBIENT_FPS = 10;           // the breath of an air conditioner needs no more
 const FOLLOW_MS = 90;             // how far behind the view the picture trails
 const FLICK_MS = 160;             // how long a move goes on once let go
 const FLOOR_PX = 44;              // pixels per meter of a floor's pattern
@@ -799,8 +799,10 @@ export function createPlan3d(stage, plan, hooks) {
       if (k >= 1) { tweens.delete(tw); if (tw.done) tw.done(); }
       dirty = true;
     }
+    // the breath of the units only for someone looking: not with the window in the background, not at night
     let alive = false;
-    if (!still) for (const { instance } of live.values()) if (instance.tick && instance.tick(now / 1000)) alive = true;
+    const ambient = !still && document.hasFocus() && !document.getElementById("nightVeil");
+    if (ambient) for (const { instance } of live.values()) if (instance.tick && instance.tick(now / 1000)) alive = true;
     if (dirty || alive) {
       const moved = dirty;
       // still catching up with the view: another picture follows this one
@@ -937,6 +939,7 @@ export function createPlan3d(stage, plan, hooks) {
   seen.observe(stage);
   const onVisibility = () => setActive(!document.hidden && stage.offsetParent !== null);
   document.addEventListener("visibilitychange", onVisibility);
+  addEventListener("focus", invalidate);      // the breath starts again
   function setActive(on) {
     if (on === active) return;
     active = on;
@@ -954,6 +957,7 @@ export function createPlan3d(stage, plan, hooks) {
     cancelAnimationFrame(raf); clearTimeout(timer);
     sizes.disconnect(); seen.disconnect();
     document.removeEventListener("visibilitychange", onVisibility);
+    removeEventListener("focus", invalidate);
     scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       for (const m of [].concat(o.material || [])) { for (const key of ["map", "emissiveMap"]) if (m[key]) m[key].dispose(); m.dispose(); }
@@ -965,7 +969,8 @@ export function createPlan3d(stage, plan, hooks) {
 
   resize();
   // what the page needs to give the plan the height its home fills, and to check it does
-  const naturalOf = (w, tallest) => naturalHeight(plan, view, w, tallest);
   const share = () => homeShare(plan, view, width / Math.max(1, height));
-  return { update, show, recenter, highlight, dispose, naturalHeight: naturalOf, share, look: (goal) => setView(goal, true), roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
+  // a turn by hand, as a drag of (dx, dy) pixels would make it (scripts/check-scroll.js)
+  const spin = (dx, dy = 0) => { grab(); turn(dx, dy); invalidate(); };
+  return { update, show, recenter, highlight, dispose, share, spin, look: (goal) => setView(goal, true), roomAt: (x, y) => roomAt(plan, x, y), limits: LIMITS, get view() { return view; }, get drawCalls() { return renderer.info.render.frame; }, get stats() { return { parts: furnitureParts3d, batches: batches.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; } };
 }

@@ -79,7 +79,7 @@ Everything is set in `config.json`. Only the cities are really needed: any card 
 | `alertAreas` | Areas for MeteoAlarm warnings, with their exact name in the feed ("Rhône", "Isère") |
 | `schoolZone` | French school holiday zone, `"A"`, `"B"` or `"C"`. Without it, only public holidays show |
 | `network` | Target of the latency test (`1.1.1.1:443` by default) |
-| `tools` | Link groups of the Tools tab. `icon` takes a name from `public/js/icons.js` (`code`, `chip`, `gamepad`…) or an emoji, `releases` lists GitHub repos whose latest version to track |
+| `tools` | Link groups of the Tools tab. `icon` takes a name from `public/js/icons.js` (`code`, `chip`, `gamepad`…) or an emoji, `releases` lists GitHub repos whose latest version to track, each link `{ label, url, desc }` (`desc` optional, a short line shown when the tab has room) |
 | `localVersions` | Path to an `.exe` to compare its installed version with the latest release |
 | `electricity.pricePerKwh` | Your price per kWh. In France, left at `null`, Vigie uses the regulated tariff |
 | `electricity.tempoPrices` | For a Tempo contract: `{ "blue": 0.13, "white": 0.16, "red": 0.75 }` |
@@ -193,7 +193,7 @@ start-dashboard.bat ──▶ agent.js (http://localhost:5252)
 | `lib/` | The agent's logic, one module per topic (sensors, energy, weather, crash…) |
 | `house/` | The house service: its API, one driver per brand, the floor plan. Runs inside the agent or alone |
 | `public/` | The page: `index.html`, `style.css`, and ES modules in `js/` (no build). `vendor/three/` is three.js, copied in for the plan |
-| `scripts/` | `check-scroll.js` (opens every tab and panel at nine screen sizes and fails if anything scrolls) and `shots.js` (the screenshots), both on made-up data in headless Chrome |
+| `scripts/` | `check-scroll.js` (opens every tab and panel at nine screen sizes and fails if anything scrolls), `perf.js` (30 s at rest on each tab, fails if the page works more than it should) and `shots.js` (the screenshots), all on made-up data in headless Chrome |
 | `test/` | Tests, run with `node --test` |
 
 The page calls Open-Meteo directly for the weather. Everything else goes through the agent, on the same origin.
@@ -223,7 +223,7 @@ Two external libraries: three.js, copied into `public/vendor/` for the plan, and
 
 ## Development
 
-No dependency to install. `node --test` runs the tests, and GitHub Actions runs them on every push with a syntax check of every file.
+No dependency to install. `node --test` runs the tests, and GitHub Actions runs them on every push with a syntax check of every file. `GET /perf` on the agent tells what it costs: CPU and memory over time, and how long each job, source and route takes.
 
 `node agent.js --demo` serves the page on made-up data (a made-up flat, made-up sensors, no network call): the screenshots of this README come from it. `node scripts/check-scroll.js` uses it to check that nothing scrolls, at every size and in every panel; it needs Chrome (`CHROME` names another binary). `node scripts/shots.js docs/tabs` redraws the screenshots. Comments explain why, not what, and every text shown on screen goes through the `I18N` dictionary in `public/js/i18n.js`, in both languages.
 
